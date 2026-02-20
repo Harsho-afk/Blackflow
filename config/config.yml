@@ -1,0 +1,9 @@
+server:   
+  port: 8080  
+  load_balancer:   
+    algorithm: round_robin  
+  health:   
+    interval: 10s  
+  routes:
+    /auth: http://localhost:8081
+    /api: http://localhost:8082
