@@ -1,11 +1,11 @@
 package config
 
 import (
-	"os"
 	"gopkg.in/yaml.v3"
+	"os"
 )
 
-type Config struct {
+type ServerConfig struct {
 	Server struct {
 		Port         string `yaml:"port"`
 		LoadBalancer struct {
@@ -18,12 +18,12 @@ type Config struct {
 	} `yaml:"server"`
 }
 
-func LoadConfig(path string) (*Config, error) {
+func LoadServerConfig(path string) (*ServerConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var config Config
+	var config ServerConfig
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
 		return nil, err
