@@ -6,19 +6,26 @@ import (
 )
 
 type Proxy struct {
-	pool  *Pool
-	proxy *httputil.ReverseProxy
+	Pool     *Pool
+	proxy    *httputil.ReverseProxy
+	Balancer Balancer
 }
 
-func NewProxy(pool *Pool) (*Proxy, error) {
+func NewProxy(pool *Pool, balancer Balancer) (*Proxy, error) {
 	p := &Proxy{
-		pool: pool,
+		Pool:     pool,
+		Balancer: balancer,
 	}
 
 	reverse_proxy := &httputil.ReverseProxy{}
 
 	reverse_proxy.Director = func(req *http.Request) {
-		// ...
+		backend := p.Balancer.NextBackend()
+		if backend == nil {
+			return
+		}
+		req.URL.Scheme = backend.URL.Scheme
+		req.URL.Host = backend.URL.Host
 	}
 
 	p.proxy = reverse_proxy

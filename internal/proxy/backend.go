@@ -7,10 +7,11 @@ import (
 )
 
 type Backend struct {
-	URL     *url.URL
-	Alive   bool
-	mu      sync.RWMutex
-	Active  int64
+	Prefix string
+	URL    *url.URL
+	Alive  bool
+	mu     sync.RWMutex
+	Active int64
 }
 
 func (b *Backend) SetAlive(alive bool) {
@@ -35,4 +36,34 @@ func (b *Backend) Decrement() {
 
 func (b *Backend) GetActiveConnections() int64 {
 	return atomic.LoadInt64(&b.Active)
+}
+
+func (b *Backend) SetPrefix(new_prefix string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.Prefix = new_prefix
+}
+
+func (b *Backend) GetPrefix() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.Prefix
+}
+
+func (b *Backend) SetURL(new_url *url.URL) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.URL = new_url
+}
+
+func (b *Backend) GetURL() *url.URL {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.URL
+}
+
+func (b *Backend) SetActiveConnection(conn int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.Active = conn
 }

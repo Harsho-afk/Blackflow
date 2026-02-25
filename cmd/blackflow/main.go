@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 
 	"github.com/Harsho-afk/blackflow/config"
 	"github.com/Harsho-afk/blackflow/internal/proxy"
@@ -16,26 +15,19 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 	pool := proxy.NewPool()
-	for _, x := range config.Server.Routes {
-		u, err := url.Parse(x)
-		if err != nil {
-			log.Fatalf("Failed to parse url: %v", err)
-		}
-		backend := &proxy.Backend{
-			URL:   u,
-			Alive: true,
-		}
-		pool.AddBackend(backend)
-	}
-	p, err := proxy.NewProxy(pool)
+	pool.LoadBackends(config.Server.Routes)
+	balancer := proxy.NewBalancer(pool, config.Server.LoadBalancer.Algorithm)
+	proxy, err := proxy.NewProxy(pool, balancer)
 	if err != nil {
 		log.Fatalf("Failed to create Proxy: %v", err)
 	}
 	fmt.Println("Endpoitns Mapping:")
-	for prefix, target := range config.Server.Routes {
+	for _, x := range proxy.Pool.GetBackends() {
+		prefix := x.Prefix
+		target := x.URL.String()
 		fmt.Printf("- %s\t\t->\t%s\n", prefix, target)
 	}
-	fmt.Printf("Load Balancing Algorithm: %s\n", config.Server.LoadBalancer.Algorithm)
+	fmt.Printf("Load Balancing Algorithm: %s\n", proxy.Balancer.GetAlgorithm())
 	fmt.Printf("Running on port: %s\n", config.Server.Port)
-	http.ListenAndServe(":"+config.Server.Port, p)
+	http.ListenAndServe(":"+config.Server.Port, proxy)
 }
