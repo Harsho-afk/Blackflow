@@ -2,7 +2,7 @@ server:
     port: 8080
     routes:
         /auth:
-            algorithm: round_robin
+            algorithm: least_connection
             backends:
                 - http://localhost:8081
                 - http://localhost:8082

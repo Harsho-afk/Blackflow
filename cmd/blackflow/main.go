@@ -39,5 +39,6 @@ func main() {
 			fmt.Printf("\t- %s\n", backend.URL.String())
 		}
 	}
+	fmt.Printf("Running on port: %s\n", config.Server.Port)
 	http.ListenAndServe(":"+config.Server.Port, proxy)
 }
