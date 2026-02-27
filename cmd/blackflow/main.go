@@ -4,16 +4,20 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/Harsho-afk/blackflow/config"
 	"github.com/Harsho-afk/blackflow/internal/proxy"
 )
 
 func main() {
-	config, err := config.LoadServerConfig("config/config.yml")
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+	config_path := ""
+	args := os.Args[1:]
+	if len(args) > 0 {
+		config_path = args[0]
 	}
+	config, config_path := config.LoadServerConfig(config_path)
+	log.Printf("Loaded Config from %s", config_path)
 	var routes []*proxy.Route
 	for prefix, routeConfig := range config.Server.Routes {
 		pool := proxy.NewPool()

@@ -53,7 +53,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer backend.Decrement()
 	req.URL.Scheme = backend.URL.Scheme
 	req.URL.Host = backend.URL.Host
-	// fmt.Printf("%s - %d\n", backend.URL.String(), backend.Active)
+	// fmt.Printf("%s - %d\n", req.URL.String(), backend.Active)
 	p.proxy.ServeHTTP(w, req)
 }
 
