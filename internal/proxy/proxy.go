@@ -27,12 +27,11 @@ func NewProxy(routes []*Route) (*Proxy, error) {
 
 	reverse_proxy.Director = func(req *http.Request) {
 		route := p.matchRoute(req.URL.Path)
-		backend := route.Balancer.NextBackend()
-		if backend == nil {
-			return
+		backends := route.Pool.getBackends()
+		for _, backend := range backends {
+			req.URL.Scheme = backend.URL.Scheme
+			req.URL.Host = backend.URL.Host
 		}
-		req.URL.Scheme = backend.URL.Scheme
-		req.URL.Host = backend.URL.Host
 	}
 
 	p.proxy = reverse_proxy
@@ -54,6 +53,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer backend.Decrement()
 	req.URL.Scheme = backend.URL.Scheme
 	req.URL.Host = backend.URL.Host
+	// fmt.Printf("%s - %d\n", backend.URL.String(), backend.Active)
 	p.proxy.ServeHTTP(w, req)
 }
 
