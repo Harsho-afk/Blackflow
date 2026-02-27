@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"strings"
@@ -41,19 +40,19 @@ func NewProxy(routes []*Route) (*Proxy, error) {
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	route := p.matchRoute(req.URL.Path)
 	if route == nil {
-		fmt.Println("Route does not exist")
+		http.Error(w, "Route not found", http.StatusNotFound)
 		return
 	}
 	backend := route.Balancer.NextBackend()
 	if backend == nil {
-		fmt.Println("No active backend found")
+		http.Error(w, "No healty backend", http.StatusServiceUnavailable)
 		return
 	}
 	backend.Increment()
 	defer backend.Decrement()
 	req.URL.Scheme = backend.URL.Scheme
 	req.URL.Host = backend.URL.Host
-	// fmt.Printf("%s - %d\n", req.URL.String(), backend.Active)
+	// log.Printf("%s - %d\n", req.URL.String(), backend.Active)
 	p.proxy.ServeHTTP(w, req)
 }
 
