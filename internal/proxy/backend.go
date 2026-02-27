@@ -7,7 +7,6 @@ import (
 )
 
 type Backend struct {
-	Prefix string
 	URL    *url.URL
 	Alive  bool
 	mu     sync.RWMutex
@@ -36,18 +35,6 @@ func (b *Backend) Decrement() {
 
 func (b *Backend) GetActiveConnections() int64 {
 	return atomic.LoadInt64(&b.Active)
-}
-
-func (b *Backend) SetPrefix(new_prefix string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.Prefix = new_prefix
-}
-
-func (b *Backend) GetPrefix() string {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.Prefix
 }
 
 func (b *Backend) SetURL(new_url *url.URL) {

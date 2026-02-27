@@ -3,24 +3,30 @@ package proxy
 import (
 	"net/http"
 	"net/http/httputil"
+	"strings"
 )
 
-type Proxy struct {
+type Route struct {
+	Prefix   string
 	Pool     *Pool
-	proxy    *httputil.ReverseProxy
 	Balancer Balancer
 }
 
-func NewProxy(pool *Pool, balancer Balancer) (*Proxy, error) {
+type Proxy struct {
+	Routes []*Route
+	proxy  *httputil.ReverseProxy
+}
+
+func NewProxy(routes []*Route) (*Proxy, error) {
 	p := &Proxy{
-		Pool:     pool,
-		Balancer: balancer,
+		Routes: routes,
 	}
 
 	reverse_proxy := &httputil.ReverseProxy{}
 
 	reverse_proxy.Director = func(req *http.Request) {
-		backend := p.Balancer.NextBackend()
+		route := p.matchRoute(req.URL.Path)
+		backend := route.Balancer.NextBackend()
 		if backend == nil {
 			return
 		}
@@ -34,4 +40,13 @@ func NewProxy(pool *Pool, balancer Balancer) (*Proxy, error) {
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	p.proxy.ServeHTTP(w, req)
+}
+
+func (p *Proxy) matchRoute(path string) *Route {
+	for _, r := range p.Routes {
+		if strings.HasPrefix(path, r.Prefix) {
+			return r
+		}
+	}
+	return nil
 }

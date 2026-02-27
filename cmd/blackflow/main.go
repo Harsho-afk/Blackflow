@@ -14,20 +14,30 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
-	pool := proxy.NewPool()
-	pool.LoadBackends(config.Server.Routes)
-	balancer := proxy.NewBalancer(pool, config.Server.LoadBalancer.Algorithm)
-	proxy, err := proxy.NewProxy(pool, balancer)
+	var routes []*proxy.Route
+	for prefix, routeConfig := range config.Server.Routes {
+		pool := proxy.NewPool()
+		pool.LoadBackends(routeConfig.Backends)
+		balancer := proxy.NewBalancer(pool, routeConfig.Algorithm)
+		route := &proxy.Route{
+			Prefix:   prefix,
+			Pool:     pool,
+			Balancer: balancer,
+		}
+		routes = append(routes, route)
+
+	}
+	proxy, err := proxy.NewProxy(routes)
 	if err != nil {
-		log.Fatalf("Failed to create Proxy: %v", err)
+		log.Fatalf("Failed to create proxy: %v", err)
 	}
 	fmt.Println("Endpoitns Mapping:")
-	for _, x := range proxy.Pool.GetBackends() {
-		prefix := x.Prefix
-		target := x.URL.String()
-		fmt.Printf("- %s\t\t->\t%s\n", prefix, target)
+	for _, route := range proxy.Routes {
+		prefix := route.Prefix
+		fmt.Printf("Prefix: %s\nAlgorithm: %s\n", prefix, route.Balancer.GetAlgorithm())
+		for _, backend := range route.Pool.GetBackends() {
+			fmt.Printf("\t- %s\n", backend.URL.String())
+		}
 	}
-	fmt.Printf("Load Balancing Algorithm: %s\n", proxy.Balancer.GetAlgorithm())
-	fmt.Printf("Running on port: %s\n", config.Server.Port)
 	http.ListenAndServe(":"+config.Server.Port, proxy)
 }

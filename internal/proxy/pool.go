@@ -19,7 +19,6 @@ func NewPool() *Pool {
 }
 
 type BackendInfo struct {
-	Prefix string
 	URL    *url.URL
 	Alive  bool
 	Active int64
@@ -31,7 +30,6 @@ func (pool *Pool) GetBackends() []BackendInfo {
 	backends := make([]BackendInfo, 0, len(pool.backends))
 	for _, x := range pool.backends {
 		backends = append(backends, BackendInfo{
-			Prefix: x.GetPrefix(),
 			URL:    x.GetURL(),
 			Alive:  x.IsAlive(),
 			Active: x.GetActiveConnections(),
@@ -86,18 +84,17 @@ func (pool *Pool) RemoveBackend(v any) error {
 	return nil
 }
 
-func (pool *Pool) LoadBackends(backends map[string]string) {
+func (pool *Pool) LoadBackends(backends []string) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
-	for prefix, target := range backends {
+	for _, target := range backends {
 		url, err := url.Parse(target)
 		if err != nil {
 			log.Fatalf("Failed to parse url: %v", err)
 		}
 		backend := &Backend{
-			Prefix: prefix,
-			URL:    url,
-			Alive:  true,
+			URL:   url,
+			Alive: true,
 		}
 		pool.backends = append(pool.backends, backend)
 	}
