@@ -1,0 +1,36 @@
+name: Blackflow CI
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Verify Go version
+        run: go version
+
+      - name: Download dependencies
+        run: go mod tidy
+
+      - name: Build
+        run: go build ./...
+
+      - name: Run tests
+        run: go test ./... -v

@@ -3,39 +3,33 @@ package proxy
 import (
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"strings"
 )
 
+type Route struct {
+	Prefix   string
+	Pool     *Pool
+	Balancer Balancer
+}
+
 type Proxy struct {
-	routes map[string]*url.URL
+	Routes []*Route
 	proxy  *httputil.ReverseProxy
 }
 
-func NewProxy(routes map[string]string) (*Proxy, error) {
-	parsed_routes := make(map[string]*url.URL)
-
-	for prefix, target := range routes {
-		url, err := url.Parse(target)
-		if err != nil {
-			return nil, err
-		}
-		parsed_routes[prefix] = url
-	}
-
+func NewProxy(routes []*Route) (*Proxy, error) {
 	p := &Proxy{
-		routes: parsed_routes,
+		Routes: routes,
 	}
 
 	reverse_proxy := &httputil.ReverseProxy{}
 
 	reverse_proxy.Director = func(req *http.Request) {
-		for prefix, target := range (*p).routes {
-			if strings.HasPrefix(req.URL.Path, prefix) {
-				req.URL.Scheme = target.Scheme
-				req.URL.Host = target.Host
-				return
-			}
+		route := p.matchRoute(req.URL.Path)
+		backends := route.Pool.getBackends()
+		for _, backend := range backends {
+			req.URL.Scheme = backend.URL.Scheme
+			req.URL.Host = backend.URL.Host
 		}
 	}
 
@@ -44,5 +38,29 @@ func NewProxy(routes map[string]string) (*Proxy, error) {
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	route := p.matchRoute(req.URL.Path)
+	if route == nil {
+		http.Error(w, "Route not found", http.StatusNotFound)
+		return
+	}
+	backend := route.Balancer.NextBackend()
+	if backend == nil {
+		http.Error(w, "No healty backend", http.StatusServiceUnavailable)
+		return
+	}
+	backend.Increment()
+	defer backend.Decrement()
+	req.URL.Scheme = backend.URL.Scheme
+	req.URL.Host = backend.URL.Host
+	// log.Printf("%s - %d\n", req.URL.String(), backend.Active)
 	p.proxy.ServeHTTP(w, req)
+}
+
+func (p *Proxy) matchRoute(path string) *Route {
+	for _, r := range p.Routes {
+		if strings.HasPrefix(path, r.Prefix) {
+			return r
+		}
+	}
+	return nil
 }
