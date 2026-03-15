@@ -12,6 +12,7 @@ import (
 )
 
 type RouteConfig struct {
+	Interval  string `yaml:"interval"`
 	Algorithm string   `yaml:"algorithm"`
 	Backends  []string `yaml:"backends"`
 }

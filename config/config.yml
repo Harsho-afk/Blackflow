@@ -2,12 +2,14 @@ server:
     port: 8080
     routes:
         /auth:
+            interval: 10ns
             algorithm: round_robin
             backends:
                 - http://localhost:8081
                 - http://localhost:8082
 
         /api:
+            interval: 10ns
             algorithm: least_connection
             backends:
                 - http://localhost:8091

@@ -26,13 +26,23 @@ func main() {
 		pool := proxy.NewPool()
 		pool.LoadBackends(routeConfig.Backends)
 		balancer := proxy.NewBalancer(pool, routeConfig.Algorithm)
+		duration, err := time.ParseDuration(routeConfig.Interval)
+		if err != nil {
+			log.Printf("Error parsing interval for service '%s'. Interval set to 10s as default. Error: %v", prefix, err)
+			duration = 10 * time.Second
+		}
+		if duration < time.Second {
+			log.Println("Interval is less than a second. Setting it to 1 second")
+			duration = 1 * time.Second
+		}
+		health := proxy.NewHealthChecker(pool, duration)
 		route := &proxy.Route{
-			Prefix:   prefix,
-			Pool:     pool,
-			Balancer: balancer,
+			Prefix:        prefix,
+			Pool:          pool,
+			Balancer:      balancer,
+			HealthChecker: health,
 		}
 		routes = append(routes, route)
-
 	}
 	proxy, err := proxy.NewProxy(routes)
 	if err != nil {
@@ -41,10 +51,13 @@ func main() {
 	log.Println("Endpoitns mapping:")
 	for _, route := range proxy.Routes {
 		prefix := route.Prefix
-		log.Printf("Prefix: %s\nAlgorithm: %s", prefix, route.Balancer.GetAlgorithm())
+		log.Printf("Prefix: %s", prefix)
+		log.Printf("Algorithm: %s", route.Balancer.GetAlgorithm())
+		log.Printf("Health Check Interval: %s", route.HealthChecker.GetInterval())
 		for _, backend := range route.Pool.GetBackends() {
 			log.Printf("\t- %s", backend.URL.String())
 		}
+		route.HealthChecker.Start()
 	}
 	server := &http.Server{
 		Addr:    ":" + config.Server.Port,
@@ -57,7 +70,6 @@ func main() {
 			log.Fatalf("Listen error: %v", err)
 		}
 	}()
-
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
