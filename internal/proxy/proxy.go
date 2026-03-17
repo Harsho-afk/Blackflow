@@ -7,9 +7,9 @@ import (
 )
 
 type Route struct {
-	Prefix   string
-	Pool     *Pool
-	Balancer Balancer
+	Prefix        string
+	Pool          *Pool
+	Balancer      Balancer
 	HealthChecker *HealthChecker
 }
 
@@ -22,14 +22,10 @@ func NewProxy(routes []*Route) (*Proxy, error) {
 	p := &Proxy{
 		Routes: routes,
 	}
-	reverse_proxy := &httputil.ReverseProxy{}
-	reverse_proxy.Director = func(req *http.Request) {
-		route := p.matchRoute(req.URL.Path)
-		backends := route.Pool.getBackends()
-		for _, backend := range backends {
-			req.URL.Scheme = backend.URL.Scheme
-			req.URL.Host = backend.URL.Host
-		}
+	reverse_proxy := &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			// intentionally left blank — ServeHTTP sets req.URL before calling us
+		},
 	}
 	p.proxy = reverse_proxy
 	return p, nil
