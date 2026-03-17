@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/url"
 	"sync"
+	"time"
 )
 
 type Pool struct {
@@ -85,17 +86,22 @@ func (pool *Pool) RemoveBackend(v any) error {
 }
 
 func (pool *Pool) LoadBackends(backends []string) {
-	pool.mu.Lock()
-	defer pool.mu.Unlock()
-	for _, target := range backends {
-		url, err := url.Parse(target)
-		if err != nil {
-			log.Fatalf("Failed to parse url: %v", err)
-		}
-		backend := &Backend{
-			URL:   url,
-			Alive: true,
-		}
-		pool.backends = append(pool.backends, backend)
-	}
+    var newBackends []*Backend
+    for _, target := range backends {
+        url, err := url.Parse(target)
+        if err != nil {
+            log.Fatalf("Failed to parse url: %v", err)
+        }
+        backend := &Backend{URL: url}
+        newBackends = append(newBackends, backend)
+    }
+
+    health := NewHealthChecker(pool, 2*time.Second)
+    for _, backend := range newBackends {
+        health.checkBackend(backend)
+    }
+
+    pool.mu.Lock()
+    defer pool.mu.Unlock()
+    pool.backends = append(pool.backends, newBackends...)
 }

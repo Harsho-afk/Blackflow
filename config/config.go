@@ -12,6 +12,7 @@ import (
 )
 
 type RouteConfig struct {
+	Interval  string `yaml:"interval"`
 	Algorithm string   `yaml:"algorithm"`
 	Backends  []string `yaml:"backends"`
 }
@@ -34,6 +35,7 @@ func LoadServerConfig(path string) (*ServerConfig, string) {
 		log.Println("Falling back to default config")
 		return createDefaultConfig()
 	}
+	// Check if input path is directory or not a readable file
 	file_info, err := os.Stat(file_path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -49,6 +51,7 @@ func LoadServerConfig(path string) (*ServerConfig, string) {
 		log.Println("Falling back to default config")
 		return createDefaultConfig()
 	}
+	// Check if file extension is .yml or .yaml
 	file_ext := filepath.Ext(file_path)
 	file_ext = strings.TrimSpace(file_ext)
 	if file_ext != ".yml" && file_ext != ".yaml" {
@@ -57,6 +60,7 @@ func LoadServerConfig(path string) (*ServerConfig, string) {
 		return createDefaultConfig()
 
 	}
+	// Read the file and convert the contents into config struct
 	data, err := os.ReadFile(file_path)
 	if errors.Is(err, os.ErrNotExist) {
 		log.Println("The given config path does not exist")
@@ -84,6 +88,7 @@ func createDefaultConfig() (*ServerConfig, string) {
 		log.Fatalf("Failed to create default config file at path %s: %v", file_path, err)
 	}
 	data, err := os.ReadFile(file_path)
+	// Default config file does not exist and needs to be created
 	if err != nil {
 		log.Printf("Error finding default config at %s: %v", file_path, err)
 		dir := filepath.Dir(file_path)
