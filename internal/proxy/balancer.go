@@ -67,8 +67,8 @@ func (lc *LeastConnection) NextBackend() *Backend {
 	length := len(backends)
 	min := backends[0]
 	for index := range length {
-		if backends[index%length].IsAlive() && min.GetActiveConnections() > backends[index%length].GetActiveConnections() {
-			min = backends[index%length]
+		if backends[index].IsAlive() && min.GetActiveConnections() > backends[index].GetActiveConnections() {
+			min = backends[index]
 		}
 	}
 	if min.IsAlive() {
