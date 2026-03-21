@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"strings"
@@ -44,9 +45,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	backend.Increment()
 	defer backend.Decrement()
-	req.URL.Scheme = backend.URL.Scheme
-	req.URL.Host = backend.URL.Host
-	// log.Printf("%s - %d\n", req.URL.String(), backend.Active)
+	req.URL.Scheme = backend.GetURL().Scheme
+	req.URL.Host = backend.GetURL().Host
 	p.proxy.ServeHTTP(w, req)
 }
 

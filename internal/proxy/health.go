@@ -40,18 +40,18 @@ func (h *HealthChecker) checkAll() {
 }
 
 func (h *HealthChecker) checkBackend(b *Backend) {
-	resp, err := h.client.Get(b.URL.String() + "/health")
+	resp, err := h.client.Get(b.GetURL().String() + "/health")
 	if err != nil {
 		b.SetAlive(false)
-		log.Printf("Server '%s' is not responsive. Error: %v", b.URL.String(), err)
+		log.Printf("Server '%s' is not responsive. Error: %v", b.GetURL().String(), err)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 200 && resp.StatusCode < 500 {
 		b.SetAlive(true)
-		log.Printf("Server '%s' is back online.",b.URL.String())
+		// log.Printf("Server '%s' is online.",b.GetURL().String())
 	} else {
-		log.Printf("Server '%s' is not responsive. Response code: %v", b.URL.String(), resp.StatusCode)
+		log.Printf("Server '%s' is not responsive. Response code: %v", b.GetURL().String(), resp.StatusCode)
 		b.SetAlive(false)
 	}
 }
