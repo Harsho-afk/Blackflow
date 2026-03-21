@@ -65,16 +65,16 @@ func (lc *LeastConnection) NextBackend() *Backend {
 		return nil
 	}
 	length := len(backends)
-	min := backends[0]
+	var lc_backend *Backend
 	for index := range length {
-		if backends[index].IsAlive() && min.GetActiveConnections() > backends[index].GetActiveConnections() {
-			min = backends[index]
+		if !backends[index].IsAlive() {
+			continue
+		}
+		if lc_backend == nil || lc_backend.GetActiveConnections() > backends[index].GetActiveConnections() {
+			lc_backend = backends[index]
 		}
 	}
-	if min.IsAlive() {
-		return min
-	}
-	return nil
+	return lc_backend
 }
 
 func (lc *LeastConnection) GetAlgorithm() string {
