@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"strings"
