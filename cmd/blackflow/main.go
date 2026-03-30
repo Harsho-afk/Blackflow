@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Harsho-afk/blackflow/config"
+	"github.com/Harsho-afk/blackflow/internal/config"
 	"github.com/Harsho-afk/blackflow/internal/proxy"
 )
 
