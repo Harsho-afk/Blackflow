@@ -3,7 +3,7 @@ server:
     routes:
         /auth:
             interval: 5s
-            algorithm: least_connection
+            algorithm: round_robin
             backends:
                 - http://localhost:8081
                 - http://localhost:8082

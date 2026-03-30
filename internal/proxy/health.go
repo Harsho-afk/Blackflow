@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 )
@@ -43,7 +42,7 @@ func (h *HealthChecker) checkBackend(b *Backend) {
 	resp, err := h.client.Get(b.GetURL().String() + "/health")
 	if err != nil {
 		b.SetAlive(false)
-		log.Printf("Server '%s' is not responsive. Error: %v", b.GetURL().String(), err)
+		// log.Printf("Server '%s' is not responsive. Error: %v", b.GetURL().String(), err)
 		return
 	}
 	defer resp.Body.Close()
@@ -51,7 +50,7 @@ func (h *HealthChecker) checkBackend(b *Backend) {
 		b.SetAlive(true)
 		// log.Printf("Server '%s' is online.",b.GetURL().String())
 	} else {
-		log.Printf("Server '%s' is not responsive. Response code: %v", b.GetURL().String(), resp.StatusCode)
+		// log.Printf("Server '%s' is not responsive. Response code: %v", b.GetURL().String(), resp.StatusCode)
 		b.SetAlive(false)
 	}
 }
@@ -61,9 +60,9 @@ func (h *HealthChecker) GetInterval() string {
 }
 
 func (h *HealthChecker) SetInterval(interval time.Duration) error {
-    if interval < time.Second {
-        return fmt.Errorf("interval %v is too short: minimum is 1s", interval)
-    }
-    h.interval = interval
-    return nil
+	if interval < time.Second {
+		return fmt.Errorf("interval %v is too short: minimum is 1s", interval)
+	}
+	h.interval = interval
+	return nil
 }

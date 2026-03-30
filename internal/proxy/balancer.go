@@ -1,6 +1,8 @@
 package proxy
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+)
 
 type Balancer interface {
 	NextBackend() *Backend
