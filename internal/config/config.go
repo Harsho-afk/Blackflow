@@ -2,129 +2,157 @@ package config
 
 import (
 	"errors"
-	"log"
+	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
+type Config struct {
+	Server Server `yaml:"server"`
+}
+
+type Server struct {
+	Port   string                 `yaml:"port"`
+	Routes map[string]RouteConfig `yaml:"routes"`
+}
+
 type RouteConfig struct {
-	Interval  string `yaml:"interval"`
+	Interval  time.Duration `yaml:"interval"`
+	Algorithm string        `yaml:"algorithm"`
+	Backends  []string      `yaml:"backends"`
+}
+
+type rawConfig struct {
+	Server struct {
+		Port   string                    `yaml:"port"`
+		Routes map[string]rawRouteConfig `yaml:"routes"`
+	} `yaml:"server"`
+}
+
+type rawRouteConfig struct {
+	Interval  string   `yaml:"interval"`
 	Algorithm string   `yaml:"algorithm"`
 	Backends  []string `yaml:"backends"`
 }
 
-type ServerConfig struct {
-	Server struct {
-		Port   string                 `yaml:"port"`
-		Routes map[string]RouteConfig `yaml:"routes"`
-	} `yaml:"server"`
+func Load(path string) (*Config, string, error) {
+	if path == "" {
+		return loadDefault()
+	}
+
+	filePath, err := expandTilde(path)
+	if err != nil {
+		return loadDefault()
+	}
+
+	cfg, err := loadFromFile(filePath)
+	if err != nil {
+		return loadDefault()
+	}
+
+	return cfg, filePath, nil
 }
 
-func LoadServerConfig(path string) (*ServerConfig, string) {
-	if len(path) == 0 {
-		log.Println("Falling back to default config")
-		return createDefaultConfig()
+func loadFromFile(path string) (*Config, error) {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return nil, fmt.Errorf("invalid config path")
 	}
-	file_path, err := expandTilde(path)
-	if err != nil {
-		log.Printf("Failed to parse path %s: %v", path, err)
-		log.Println("Falling back to default config")
-		return createDefaultConfig()
-	}
-	// Check if input path is directory or not a readable file
-	file_info, err := os.Stat(file_path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			log.Println("Given config path does not exist")
-		} else {
-			log.Printf("Error checking path %s: %v\n", file_path, err)
-		}
-		log.Println("Falling back to default config")
-		return createDefaultConfig()
-	}
-	if file_info.IsDir() || !file_info.Mode().IsRegular() {
-		log.Printf("%s is not a Config file. Accepted files are .yml and .yaml.", file_path)
-		log.Println("Falling back to default config")
-		return createDefaultConfig()
-	}
-	// Check if file extension is .yml or .yaml
-	file_ext := filepath.Ext(file_path)
-	file_ext = strings.TrimSpace(file_ext)
-	if file_ext != ".yml" && file_ext != ".yaml" {
-		log.Printf("%s is not a Config file. Accepted files are '.yml' and '.yaml'", file_path)
-		log.Println("Falling back to default config")
-		return createDefaultConfig()
 
+	ext := strings.TrimSpace(filepath.Ext(path))
+	if ext != ".yml" && ext != ".yaml" {
+		return nil, fmt.Errorf("invalid file type")
 	}
-	// Read the file and convert the contents into config struct
-	data, err := os.ReadFile(file_path)
-	if errors.Is(err, os.ErrNotExist) {
-		log.Println("The given config path does not exist")
-		log.Println("Falling back to default config")
-		return createDefaultConfig()
-	} else if err != nil {
-		log.Printf("Error checking path %s: %v", file_path, err)
-		log.Println("Falling back to default config")
-		return createDefaultConfig()
-	}
-	var config ServerConfig
-	err = yaml.Unmarshal(data, &config)
+
+	data, err := os.ReadFile(path)
 	if err != nil {
-		log.Printf("Failed to load the config file: %v", err)
-		log.Printf("Falling back to default config")
-		return createDefaultConfig()
+		return nil, err
 	}
-	return &config, file_path
+
+	var raw rawConfig
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+
+	return normalize(raw)
 }
 
-func createDefaultConfig() (*ServerConfig, string) {
-	file_path := "~/.config/blackflow/default.yml"
-	file_path, err := expandTilde(file_path)
-	if err != nil {
-		log.Fatalf("Failed to create default config file at path %s: %v", file_path, err)
+func normalize(raw rawConfig) (*Config, error) {
+	cfg := &Config{
+		Server: Server{
+			Port:   raw.Server.Port,
+			Routes: make(map[string]RouteConfig),
+		},
 	}
-	data, err := os.ReadFile(file_path)
-	// Default config file does not exist and needs to be created
-	if err != nil {
-		log.Printf("Error finding default config at %s: %v", file_path, err)
-		dir := filepath.Dir(file_path)
-		err = os.MkdirAll(dir, os.ModePerm)
-		if err != nil {
-			log.Fatalf("Failed to create default config file at path %s: %v", file_path, err)
-		}
-		file, err := os.Create(file_path)
-		if err != nil {
-			log.Fatalf("Failed to create default config file at path %s: %v", file_path, err)
-		}
-		defer file.Close()
-		data := []byte("server:\n  port: 8080\n  routes:\n")
-		written_len, err := file.Write(data)
-		if written_len != len(data) {
-			file.Close()
-			err = os.Remove(file_path)
-			log.Fatalf("Failed to create default config file at path %s: %v", file_path, err)
-		}
-		log.Printf("Created default config file at %s", file_path)
+
+	if cfg.Server.Port == "" {
+		cfg.Server.Port = "8080"
 	}
-	var config ServerConfig
-	err = yaml.Unmarshal(data, &config)
-	if err != nil {
-		log.Fatalf("Failed to load default config file at path %s: %v", file_path, err)
+
+	for prefix, r := range raw.Server.Routes {
+		if len(r.Backends) == 0 {
+			return nil, fmt.Errorf("route %s has no backends", prefix)
+		}
+
+		interval, err := time.ParseDuration(r.Interval)
+		if err != nil || interval < time.Second {
+			interval = 5 * time.Second
+		}
+
+		algo := r.Algorithm
+		if algo == "" {
+			algo = "round_robin"
+		}
+
+		cfg.Server.Routes[prefix] = RouteConfig{
+			Interval:  interval,
+			Algorithm: algo,
+			Backends:  r.Backends,
+		}
 	}
-	return &config, file_path
+
+	return cfg, nil
+}
+
+func loadDefault() (*Config, string, error) {
+	path, err := expandTilde("~/.config/blackflow/default.yml")
+	if err != nil {
+		return nil, "", err
+	}
+
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		if err := createDefaultFile(path); err != nil {
+			return nil, "", err
+		}
+	}
+
+	cfg, err := loadFromFile(path)
+	return cfg, path, err
+}
+
+func createDefaultFile(path string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+		return err
+	}
+	content := []byte("server:\n  port: \"8080\"\n  routes:\n")
+	return os.WriteFile(path, content, 0644)
 }
 
 func expandTilde(path string) (string, error) {
-	if len(path) == 0 || path[0] != '~' {
+	if path == "" || path[0] != '~' {
 		return path, nil
 	}
+
 	usr, err := user.Current()
 	if err != nil {
 		return "", err
 	}
+
 	return filepath.Join(usr.HomeDir, path[1:]), nil
 }
