@@ -16,10 +16,10 @@ Client -> Blackflow (ServeHTTP) -> Route Matching -> Load Balancer -> Backend ->
 ### Step-by-step
 
 1. Client sends an HTTP request to Blackflow
-2. `Proxy.ServeHTTP` matches the request path to a configured route (longest-prefix match, in iteration order)
+2. `Proxy.ServeHTTP` looks up the request path in the `Registry` (longest-prefix match)
 3. The route's load balancer selects a healthy backend
 4. `backend.Increment()` is called to track the active connection
-5. `httputil.ReverseProxy` forwards the request (scheme and host rewritten to the selected backend)
+5. `httputil.NewSingleHostReverseProxy` forwards the request, with the Director rewriting scheme, host, path, query, and forwarding headers
 6. Response is returned to the client
 7. `backend.Decrement()` is deferred, releasing the connection count
 
@@ -29,63 +29,91 @@ Client -> Blackflow (ServeHTTP) -> Route Matching -> Load Balancer -> Backend ->
 
 ```
 blackflow/
-├── cmd/blackflow/main.go       # Entry point: wires config → routes → proxy → HTTP server
-├── config/
-│   ├── config.go               # YAML config loading, tilde expansion, default-file creation
-│   └── config.yml              # Example config
-├── internal/proxy/
-│   ├── backend.go              # Backend struct (URL, alive state, active-connection counter)
-│   ├── balancer.go             # Balancer interface + RoundRobin / LeastConnection impls
-│   ├── health.go               # HealthChecker (periodic HTTP GET /health polling)
-│   ├── pool.go                 # Thread-safe backend pool
-│   └── proxy.go                # Proxy (ServeHTTP, route matching, ReverseProxy wiring)
+├── cmd/blackflow/main.go           # Entry point: loads config, constructs App, handles OS signals
+├── configs/example.yml             # Example configuration file
+├── internal/
+│   ├── app/
+│   │   └── app.go                  # App: wires config → pool → balancer → registry → health → HTTP server
+│   ├── backend/
+│   │   ├── backend.go              # Backend struct (URL, alive state, active-connection counter)
+│   │   └── iface.go                # Instance and Provider interfaces
+│   ├── balancer/
+│   │   └── balancer.go             # Balancer interface + RoundRobin / LeastConnection impls
+│   ├── config/
+│   │   └── config.go               # YAML config loading, tilde expansion, default-file creation
+│   ├── health/
+│   │   ├── check.go                # Per-backend HTTP health check logic
+│   │   └── health.go               # Manager: runs health checks on a ticker, supports graceful stop
+│   ├── pool/
+│   │   └── pool.go                 # Thread-safe backend pool
+│   ├── proxy/
+│   │   └── proxy.go                # Proxy (ServeHTTP, reverse proxy wiring, forwarding headers)
+│   └── registry/
+│       ├── registery.go            # Registry: thread-safe route map with longest-prefix Match
+│       └── route.go                # Route struct binding a prefix to a Balancer
+├── docs/
+│   └── architecture.md
 ├── Makefile
-└── go.mod                      # Module: github.com/Harsho-afk/blackflow
+└── go.mod                          # Module: github.com/Harsho-afk/blackflow
 ```
 
 ---
 
 ## Core Components
 
-### 1. Proxy (`internal/proxy/proxy.go`)
+### 1. App (`internal/app/app.go`)
 
-The top-level HTTP handler. Holds a slice of `*Route` values and a single shared `httputil.ReverseProxy` instance whose `Director` is a no-op (URL rewriting happens in `ServeHTTP` before the call is delegated).
+The application bootstrap layer. `New(cfg)` iterates the config routes, constructing a `Pool`, `Balancer`, and `Route` for each, registers them with a `Registry` and `health.Manager`, then creates the `http.Server`. This logic was previously spread across `main.go`.
+
+| Method | Behaviour |
+|---|---|
+| `New(cfg)` | Wires all components; returns a ready-to-start `*App` |
+| `Start()` | Calls `server.ListenAndServe` in a background goroutine |
+| `Shutdown(ctx)` | Cancels the health manager context, waits for checkers to stop, then drains the HTTP server |
+
+### 2. Proxy (`internal/proxy/proxy.go`)
+
+The top-level HTTP handler. Delegates route lookup to the `Registry` and constructs a fresh `httputil.NewSingleHostReverseProxy` per request, customising its `Director` to preserve the original path and query and inject standard forwarding headers.
 
 **Key behaviour:**
-- `matchRoute(path)` iterates routes and returns the first whose `Prefix` is a prefix of the request path
-- Returns `404` if no route matches; `503` if the selected balancer returns no healthy backend
-- Rewrites `req.URL.Scheme` and `req.URL.Host` in-place before forwarding
+- Returns `404` if no route matches
+- Returns `503` if the balancer returns no healthy backend
+- Returns `502` (Bad Gateway) via `proxy.ErrorHandler` if the upstream call fails
+- Sets `X-Forwarded-Host`, `X-Forwarded-Proto`, and `X-Forwarded-For` headers
 
-### 2. Route (`internal/proxy/proxy.go`)
+### 3. Registry (`internal/registry/`)
 
-A plain struct that binds a URL prefix to its runtime dependencies:
+Thread-safe map of URL prefix → `*Route`. Used by `Proxy` to resolve incoming paths.
+
+| Method | Notes |
+|---|---|
+| `Add(*Route)` | Inserts or replaces under write lock |
+| `Remove(prefix)` | Deletes under write lock |
+| `Match(path) *Route` | Returns the route with the longest matching prefix (read lock) |
+
+### 4. Route (`internal/registry/route.go`)
+
+A plain struct binding a URL prefix to its `Balancer`.
 
 | Field | Type | Purpose |
 |---|---|---|
 | `Prefix` | `string` | URL path prefix (e.g. `/auth`) |
-| `Pool` | `*Pool` | Set of backend instances |
-| `Balancer` | `Balancer` | Load-balancing strategy |
-| `HealthChecker` | `*HealthChecker` | Periodic health polling for this pool |
+| `Balancer` | `balancer.Balancer` | Load-balancing strategy for this prefix |
 
-Routes are constructed in `main.go` from the YAML config and passed to `NewProxy`.
+### 5. Pool (`internal/pool/pool.go`)
 
-### 3. Pool (`internal/proxy/pool.go`)
-
-Thread-safe container for `[]*Backend`.
+Thread-safe container for `[]*backend.Backend`.
 
 | Method | Notes |
 |---|---|
 | `AddBackend(*Backend)` | Appends under write lock |
-| `RemoveBackend(any)` | Accepts `*Backend` or `*url.URL`; filters by URL string equality |
-| `GetBackends() []BackendInfo` | Returns a snapshot (read lock); safe for external consumers |
-| `getBackends() []*Backend` | Internal; returns the live slice (read lock) |
-| `LoadBackends([]string)` | Parses URLs, runs an immediate health check on each new backend, then appends under write lock |
+| `RemoveBackend(string)` | Filters by URL string equality under write lock |
+| `GetBackends() []backend.Instance` | Returns a snapshot (read lock); implements `backend.Provider` |
+| `Load([]string) error` | Parses URLs and appends backends; health checks run separately via `health.Manager` |
 
-A `BackendInfo` value-type snapshot is exposed publicly to avoid leaking mutable `*Backend` pointers.
+### 6. Backend (`internal/backend/`)
 
-### 4. Backend (`internal/proxy/backend.go`)
-
-Represents a single upstream service instance.
+Represents a single upstream service instance. The `Instance` interface in `iface.go` is what the rest of the system depends on, keeping the pool, balancer, and health packages decoupled from the concrete type.
 
 | Concern | Mechanism |
 |---|---|
@@ -93,45 +121,64 @@ Represents a single upstream service instance.
 | Alive flag | Protected by `sync.RWMutex` via `IsAlive` / `SetAlive` |
 | Active connections | `int64` field manipulated with `sync/atomic` (`Increment`, `Decrement`, `GetActiveConnections`) |
 
+**Interfaces (`iface.go`):**
 
-### 5. Balancer (`internal/proxy/balancer.go`)
+```go
+type Instance interface {
+    IsAlive() bool
+    SetAlive(bool)
+    GetURL() *url.URL
+    GetActiveConnections() int64
+    Increment()
+    Decrement()
+}
+
+type Provider interface {
+    GetBackends() []Instance
+}
+```
+
+### 7. Balancer (`internal/balancer/balancer.go`)
 
 ```go
 type Balancer interface {
-    NextBackend() *Backend
+    NextBackend() Backend
     GetAlgorithm() string
 }
 ```
 
-`NewBalancer(pool, algo)` is a factory that returns the correct implementation based on the `algorithm` string from config. Unknown values fall back to Round Robin.
+`NewBalancer(pool, algo)` is a factory returning the correct implementation. Unknown algorithm strings fall back to Round Robin.
 
-### 6. Health Checker (`internal/proxy/health.go`)
+| Algorithm | Implementation |
+|---|---|
+| `round_robin` | Atomic `uint64` counter; iterates all backends once, skipping unhealthy |
+| `least_connection` | Linear scan; picks the alive backend with the fewest active connections |
 
-Periodically polls each backend's `/health` endpoint.
+### 8. Health Manager (`internal/health/`)
+
+`Manager` (in `health.go`) runs one goroutine per registered pool. Each goroutine performs an immediate check on startup, then polls on a `time.Ticker`.
+
+`checkProvider` / `checkBackend` (in `check.go`) issue `GET <backend-url>/health` with a 2-second HTTP timeout. A `2xx–4xx` response marks the backend alive; a `5xx` or network error marks it dead.
 
 | Aspect | Detail |
 |---|---|
 | HTTP client timeout | 2 seconds |
-| Check trigger | `time.NewTicker(interval)` in a background goroutine |
 | Alive condition | HTTP status 200–499 → alive; 500+ or error → not alive |
-| Startup check | `LoadBackends` calls `checkBackend` synchronously for each new backend before adding it to the pool |
-| Minimum interval | Enforced in `main.go` (≥ 1 s) and via `SetInterval` (returns error if < 1 s) |
-
-> The ticker goroutine started by `Start()` has no stop mechanism. Adding a `Stop()` method with a done channel would allow clean shutdown of health-check goroutines.
+| Startup check | `Register` calls `checkProvider` synchronously before starting the ticker |
+| Shutdown | `Stop()` cancels the shared context and calls `wg.Wait()` — all checker goroutines exit cleanly |
 
 ---
 
-## Configuration (`config/config.go`)
+## Configuration (`internal/config/config.go`)
 
 Config is loaded from a YAML file at a user-supplied path. On any failure (path missing, wrong extension, parse error) it falls back to `~/.config/blackflow/default.yml`, creating the file with a minimal skeleton if it does not exist.
 
 ```yaml
-# config/config.yml (example)
 server:
   port: 8080
   routes:
     /auth:
-      interval: 10s          # Health check interval (minimum 1s enforced at runtime)
+      interval: 10s           # Health check interval (minimum 1s enforced at load time)
       algorithm: round_robin  # round_robin | least_connection
       backends:
         - http://localhost:8081
@@ -147,26 +194,21 @@ server:
 
 | Field | Type | Description |
 |---|---|---|
-| `interval` | `string` | `time.Duration` string for health-check polling |
+| `interval` | `time.Duration` | Health-check polling interval (< 1s is clamped to 5s) |
 | `algorithm` | `string` | Load-balancing algorithm name |
 | `backends` | `[]string` | List of backend URLs |
 
 ---
 
-## Startup Sequence (`cmd/blackflow/main.go`)
+## Startup Sequence (`cmd/blackflow/main.go` + `internal/app/app.go`)
 
 1. Parse optional config-file path from `os.Args`
-2. Load `ServerConfig` from YAML (or default)
-3. For each route in `config.Server.Routes`:
-   - Create a `Pool` and load backends (with immediate health checks)
-   - Create a `Balancer` for the configured algorithm
-   - Parse the health-check interval; clamp to ≥ 1 s
-   - Create a `HealthChecker` and wrap everything in a `*Route`
-4. Construct the `Proxy` from the route slice
-5. Log the endpoint mapping (prefix, algorithm, interval, backends)
-6. Start each route's `HealthChecker` goroutine
-7. Start the HTTP server in a goroutine
-8. Block on `SIGINT` / `SIGTERM`; graceful shutdown with a 1-second context timeout
+2. Load `Config` from YAML (or default fallback)
+3. `app.New(cfg)` builds all components:
+   - For each route: create `Pool`, load backends, create `Balancer`, register with `Registry` and `health.Manager`
+4. `app.Start()` — starts HTTP server in a background goroutine
+5. Block on `SIGINT` / `SIGTERM`
+6. `app.Shutdown(ctx)` — cancels health manager, waits for checker goroutines, then gracefully drains the HTTP server (5-second timeout)
 
 ---
 
@@ -178,7 +220,8 @@ server:
 | Active connection count | `sync/atomic` (`int64`) |
 | Alive flag | `sync.RWMutex` |
 | Round-robin counter | `sync/atomic` (`uint64`) |
-| Health checks | One goroutine per pool, spawns per-backend goroutines on each tick |
+| Registry route map | `sync.RWMutex` |
+| Health checks | One goroutine per pool via `health.Manager`; stopped via context cancellation + `sync.WaitGroup` |
 | HTTP requests | Each handled in its own goroutine by `net/http` |
 
 ---
@@ -188,7 +231,9 @@ server:
 | Condition | Response |
 |---|---|
 | No matching route | `404 Not Found` |
-| No healthy backend | `503 Service Unavailable` (message: "No healty backend") |
+| No healthy backend | `503 Service Unavailable` ("No healthy backend") |
+| Upstream call failure | `502 Bad Gateway` ("Bad Gateway") |
+| Invalid backend URL | `500 Internal Server Error` ("Invalid backend URL") |
 | Backend health-check failure | Backend marked not alive; logged |
 | Config parse failure | Falls back to default config |
 | Server listen error | `log.Fatalf` (fatal) |
@@ -198,11 +243,13 @@ server:
 
 ## Current Capabilities
 
-- Reverse proxying via `httputil.ReverseProxy`
-- Multi-route support (prefix-based matching)
-- Round Robin load balancing (atomic, skips unhealthy backends)
-- Least Connections load balancing
+- Reverse proxying via `httputil.NewSingleHostReverseProxy`
+- Multi-route support with longest-prefix matching
+- Round Robin load balancing (atomic counter, skips unhealthy backends)
+- Least Connections load balancing (adapts to runtime load)
 - Active health checks (periodic HTTP polling, configurable interval)
 - Startup health checks (backends probed before traffic is accepted)
-- Graceful shutdown (OS signal handling, configurable drain timeout)
+- Graceful shutdown (OS signal handling, context cancellation, `WaitGroup` drain)
+- Forwarding headers (`X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-For`)
 - YAML-driven configuration with tilde expansion and default-file fallback
+- Interface-driven design (`backend.Instance`, `backend.Provider`) for testability

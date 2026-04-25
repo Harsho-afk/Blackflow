@@ -7,14 +7,16 @@ Blackflow routes incoming HTTP requests to backend services based on URL path pr
 
 ## Features
 
-- Reverse proxying via `httputil.ReverseProxy`
-- Prefix-based multi-route support
+- Reverse proxying via `httputil.NewSingleHostReverseProxy`
+- Longest-prefix multi-route matching
 - Round Robin load balancing (atomic counter, skips unhealthy backends)
 - Least Connections load balancing (adapts to runtime load)
 - Active health checks — periodic `GET /health` polling per backend pool
 - Startup health checks — backends are probed before the server accepts traffic
+- Forwarding headers — `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-For`
 - Graceful shutdown on `SIGINT` / `SIGTERM`
 - YAML-driven configuration with `~` tilde expansion and automatic default-file creation
+- Interface-driven design for testability (`backend.Instance`, `backend.Provider`)
 
 ---
 
@@ -62,7 +64,7 @@ server:
   port: 8080
   routes:
     /auth:
-      interval: 10s           # Health check polling interval (minimum 1s)
+      interval: 10s           # Health check polling interval (values < 1s default to 5s)
       algorithm: round_robin  # round_robin | least_connection
       backends:
         - http://localhost:8081
