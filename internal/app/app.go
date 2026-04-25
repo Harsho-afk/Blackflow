@@ -59,7 +59,6 @@ func New(cfg *config.Config) (*App, error) {
 	}, nil
 }
 
-
 func (a *App) Start() {
 	go func() {
 		log.Printf("Server running on %s", a.server.Addr)

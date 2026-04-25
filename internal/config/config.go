@@ -140,17 +140,7 @@ func createDefaultFile(path string) error {
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return err
 	}
-
-	content := []byte(`server:
-  port: "8080"
-  routes:
-    /api:
-      interval: "5s"
-      algorithm: "round_robin"
-      backends:
-        - "http://localhost:8081"
-`)
-
+	content := []byte("server:\n  port: \"8080\"\n  routes:\n")
 	return os.WriteFile(path, content, 0644)
 }
 
