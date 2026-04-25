@@ -17,11 +17,13 @@ func New() *Pool {
 	}
 }
 
-func (p *Pool) GetBackends() []*backend.Backend {
+func (p *Pool) GetBackends() []backend.Instance {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	out := make([]*backend.Backend, len(p.backends))
-	copy(out, p.backends)
+	out := make([]backend.Instance, len(p.backends))
+	for i, b := range p.backends {
+		out[i] = b
+	}
 	return out
 }
 

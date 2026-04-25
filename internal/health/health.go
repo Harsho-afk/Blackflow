@@ -2,35 +2,24 @@ package health
 
 import (
 	"context"
-	"net/url"
 	"sync"
 	"time"
+
+	"github.com/Harsho-afk/blackflow/internal/backend"
 )
 
-type Backend interface {
-	IsAlive() bool
-	SetAlive(bool)
-	GetURL() *url.URL
-}
-
-type BackendProvider interface {
-	GetBackends() []Backend
-}
+type Backend = backend.Instance
+type BackendProvider = backend.Provider
 
 type Manager struct {
 	ctx    context.Context
 	cancel context.CancelFunc
-
-	wg sync.WaitGroup
+	wg     sync.WaitGroup
 }
 
 func NewManager(parent context.Context) *Manager {
 	ctx, cancel := context.WithCancel(parent)
-
-	return &Manager{
-		ctx:    ctx,
-		cancel: cancel,
-	}
+	return &Manager{ctx: ctx, cancel: cancel}
 }
 
 func (m *Manager) Register(p BackendProvider, interval time.Duration) {

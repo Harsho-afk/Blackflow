@@ -1,21 +1,13 @@
 package balancer
 
 import (
-	"net/url"
 	"sync/atomic"
+
+	"github.com/Harsho-afk/blackflow/internal/backend"
 )
 
-type Backend interface {
-	IsAlive() bool
-	GetActiveConnections() int64
-	Increment()
-	Decrement()
-	GetURL() *url.URL
-}
-
-type BackendProvider interface {
-	GetBackends() []Backend
-}
+type Backend = backend.Instance
+type BackendProvider = backend.Provider
 
 type Balancer interface {
 	NextBackend() Backend
@@ -37,9 +29,7 @@ type RoundRobin struct {
 }
 
 func NewRoundRobin(p BackendProvider) *RoundRobin {
-	return &RoundRobin{
-		provider: p,
-	}
+	return &RoundRobin{provider: p}
 }
 
 func (rr *RoundRobin) NextBackend() Backend {
@@ -52,7 +42,6 @@ func (rr *RoundRobin) NextBackend() Backend {
 	for range n {
 		idx := atomic.AddUint64(&rr.current, 1)
 		b := backends[idx%uint64(n)]
-
 		if b.IsAlive() {
 			return b
 		}
@@ -61,18 +50,14 @@ func (rr *RoundRobin) NextBackend() Backend {
 	return nil
 }
 
-func (rr *RoundRobin) GetAlgorithm() string {
-	return "round_robin"
-}
+func (rr *RoundRobin) GetAlgorithm() string { return "round_robin" }
 
 type LeastConnection struct {
 	provider BackendProvider
 }
 
 func NewLeastConnection(p BackendProvider) *LeastConnection {
-	return &LeastConnection{
-		provider: p,
-	}
+	return &LeastConnection{provider: p}
 }
 
 func (lc *LeastConnection) NextBackend() Backend {
@@ -91,6 +76,4 @@ func (lc *LeastConnection) NextBackend() Backend {
 	return best
 }
 
-func (lc *LeastConnection) GetAlgorithm() string {
-	return "least_connection"
-}
+func (lc *LeastConnection) GetAlgorithm() string { return "least_connection" }

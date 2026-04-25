@@ -10,32 +10,24 @@ var client = &http.Client{
 }
 
 func checkProvider(p BackendProvider) {
-	backends := p.GetBackends()
-
-	for _, b := range backends {
+	for _, b := range p.GetBackends() {
 		checkBackend(b)
 	}
 }
 
 func checkBackend(b Backend) {
-	url := b.GetURL()
-
-	if url == nil {
+	u := b.GetURL()
+	if u == nil {
 		b.SetAlive(false)
 		return
 	}
 
-	resp, err := client.Get(url.String() + "/health")
-
+	resp, err := client.Get(u.String() + "/health")
 	if err != nil {
 		b.SetAlive(false)
 		return
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 200 && resp.StatusCode < 500 {
-		b.SetAlive(true)
-	} else {
-		b.SetAlive(false)
-	}
+	b.SetAlive(resp.StatusCode >= 200 && resp.StatusCode < 500)
 }
