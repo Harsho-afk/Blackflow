@@ -1,6 +1,8 @@
 package proxy
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+)
 
 type Balancer interface {
 	NextBackend() *Backend
@@ -64,17 +66,16 @@ func (lc *LeastConnection) NextBackend() *Backend {
 	if len(backends) == 0 {
 		return nil
 	}
-	length := len(backends)
-	min := backends[0]
-	for index := range length {
-		if backends[index].IsAlive() && min.GetActiveConnections() > backends[index].GetActiveConnections() {
-			min = backends[index]
+	var min *Backend
+	for _, b := range backends {
+		if !b.IsAlive() {
+			continue
+		}
+		if min == nil || b.GetActiveConnections() < min.GetActiveConnections() {
+			min = b
 		}
 	}
-	if min.IsAlive() {
-		return min
-	}
-	return nil
+	return min
 }
 
 func (lc *LeastConnection) GetAlgorithm() string {

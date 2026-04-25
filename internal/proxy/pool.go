@@ -48,7 +48,7 @@ func (pool *Pool) getBackends() []*Backend {
 func removeElementByBackend(a []*Backend, ele *Backend) []*Backend {
 	b := a[:0]
 	for _, x := range a {
-		if x.GetURL().String() != ele.URL.String() {
+		if x.GetURL().String() != ele.GetURL().String() {
 			b = append(b, x)
 		}
 	}
@@ -92,7 +92,8 @@ func (pool *Pool) LoadBackends(backends []string) {
         if err != nil {
             log.Fatalf("Failed to parse url: %v", err)
         }
-        backend := &Backend{URL: url}
+        backend := &Backend{}
+		backend.SetURL(url)
         newBackends = append(newBackends, backend)
     }
 
