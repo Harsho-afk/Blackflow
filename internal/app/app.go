@@ -2,12 +2,13 @@ package app
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/Harsho-afk/blackflow/internal/balancer"
 	"github.com/Harsho-afk/blackflow/internal/config"
 	"github.com/Harsho-afk/blackflow/internal/health"
+	"github.com/Harsho-afk/blackflow/internal/middleware"
 	"github.com/Harsho-afk/blackflow/internal/pool"
 	"github.com/Harsho-afk/blackflow/internal/proxy"
 	"github.com/Harsho-afk/blackflow/internal/registry"
@@ -38,14 +39,19 @@ func New(cfg *config.Config) (*App, error) {
 		reg.Add(route)
 		hm.Register(p, rc.Interval)
 
-		log.Printf("[route] %s → %s (%d backends)",
-			prefix,
-			b.GetAlgorithm(),
-			len(rc.Backends),
+		slog.Info("route registered",
+			"prefix", prefix,
+			"algorithm", b.GetAlgorithm(),
+			"backends", len(rc.Backends),
 		)
 	}
 
-	handler := proxy.New(reg)
+	handler := middleware.Chain(
+		proxy.New(reg),
+		middleware.Recover,
+		middleware.Logging,
+		middleware.Metrics,
+	)
 
 	server := &http.Server{
 		Addr:    ":" + cfg.Server.Port,
@@ -61,9 +67,9 @@ func New(cfg *config.Config) (*App, error) {
 
 func (a *App) Start() {
 	go func() {
-		log.Printf("Server running on %s", a.server.Addr)
+		slog.Info("server running", "addr", a.server.Addr)
 		if err := a.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Listen error: %v", err)
+			slog.Error("listen error", "error", err)
 		}
 	}()
 }

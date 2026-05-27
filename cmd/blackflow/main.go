@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,6 +13,8 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+
 	configPath := ""
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
@@ -20,14 +22,16 @@ func main() {
 
 	cfg, path, err := config.Load(configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
 	}
 
-	log.Printf("Loaded config from %s", path)
+	slog.Info("loaded config", "path", path)
 
 	a, err := app.New(cfg)
 	if err != nil {
-		log.Fatalf("Failed to initialize app: %v", err)
+		slog.Error("failed to initialize app", "error", err)
+		os.Exit(1)
 	}
 
 	a.Start()
@@ -36,14 +40,14 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	<-stop
-	log.Println("Shutting down...")
+	slog.Info("shutting down")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := a.Shutdown(ctx); err != nil {
-		log.Printf("Forced shutdown: %v", err)
+		slog.Error("forced shutdown", "error", err)
 	} else {
-		log.Println("Shutdown complete")
+		slog.Info("shutdown complete")
 	}
 }
