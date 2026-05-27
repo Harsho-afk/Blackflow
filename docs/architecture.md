@@ -10,18 +10,22 @@ It routes incoming HTTP requests to backend services based on URL path prefixes 
 ## Request Flow
 
 ```
-Client -> Blackflow (ServeHTTP) -> Route Matching -> Load Balancer -> Backend -> Response
+Client -> Recover -> Logging -> Metrics -> Proxy -> Route Matching -> Load Balancer -> Backend -> Response
 ```
 
 ### Step-by-step
 
 1. Client sends an HTTP request to Blackflow
-2. `Proxy.ServeHTTP` looks up the request path in the `Registry` (longest-prefix match)
-3. The route's load balancer selects a healthy backend
-4. `backend.Increment()` is called to track the active connection
-5. `httputil.NewSingleHostReverseProxy` forwards the request, with the Director rewriting scheme, host, path, query, and forwarding headers
-6. Response is returned to the client
-7. `backend.Decrement()` is deferred, releasing the connection count
+2. `Recover` middleware wraps the request — catches any downstream panic and returns 500
+3. `Logging` middleware records the start time and wraps the response writer
+4. `Metrics` middleware hook
+5. `Proxy.ServeHTTP` looks up the request path in the `Registry` (longest-prefix match)
+6. The route's load balancer selects a healthy backend
+7. `backend.Increment()` is called to track the active connection
+8. `httputil.NewSingleHostReverseProxy` forwards the request, with the Director rewriting scheme, host, path, query, and forwarding headers
+9. Response is returned to the client
+10. `backend.Decrement()` is deferred, releasing the connection count
+11. `Logging` middleware emits a structured slog record (method, path, status, duration_ms, remote_addr, user_agent)
 
 ---
 
@@ -29,11 +33,11 @@ Client -> Blackflow (ServeHTTP) -> Route Matching -> Load Balancer -> Backend ->
 
 ```
 blackflow/
-├── cmd/blackflow/main.go           # Entry point: loads config, constructs App, handles OS signals
+├── cmd/blackflow/main.go           # Entry point: logging setup, config load, OS signals
 ├── configs/example.yml             # Example configuration file
 ├── internal/
 │   ├── app/
-│   │   └── app.go                  # App: wires config → pool → balancer → registry → health → HTTP server
+│   │   └── app.go                  # App: wires config → pool → balancer → registry → health → middleware → HTTP server
 │   ├── backend/
 │   │   ├── backend.go              # Backend struct (URL, alive state, active-connection counter)
 │   │   └── iface.go                # Instance and Provider interfaces
@@ -42,8 +46,14 @@ blackflow/
 │   ├── config/
 │   │   └── config.go               # YAML config loading, tilde expansion, default-file creation
 │   ├── health/
-│   │   ├── check.go                # Per-backend HTTP health check logic
+│   │   ├── check.go                # Per-backend HTTP health check logic, state-change logging
 │   │   └── health.go               # Manager: runs health checks on a ticker, supports graceful stop
+│   ├── middleware/
+│   │   ├── middleware.go           # Middleware type + Chain() composer
+│   │   ├── recover.go              # Panic recovery → 500, logs stack trace
+│   │   ├── logging.go              # Structured per-request logging via slog
+│   │   ├── metrics.go              # Metrics hook stub
+│   │   └── responsewriter.go       # http.ResponseWriter wrapper to capture status code
 │   ├── pool/
 │   │   └── pool.go                 # Thread-safe backend pool
 │   ├── proxy/
@@ -63,7 +73,7 @@ blackflow/
 
 ### 1. App (`internal/app/app.go`)
 
-The application bootstrap layer. `New(cfg)` iterates the config routes, constructing a `Pool`, `Balancer`, and `Route` for each, registers them with a `Registry` and `health.Manager`, then creates the `http.Server`. This logic was previously spread across `main.go`.
+The application bootstrap layer. `New(cfg)` iterates the config routes, constructing a `Pool`, `Balancer`, and `Route` for each, registers them with a `Registry` and `health.Manager`, then wraps the proxy in the middleware chain and creates the `http.Server`.
 
 | Method | Behaviour |
 |---|---|
@@ -71,9 +81,27 @@ The application bootstrap layer. `New(cfg)` iterates the config routes, construc
 | `Start()` | Calls `server.ListenAndServe` in a background goroutine |
 | `Shutdown(ctx)` | Cancels the health manager context, waits for checkers to stop, then drains the HTTP server |
 
-### 2. Proxy (`internal/proxy/proxy.go`)
+### 2. Middleware (`internal/middleware/`)
 
-The top-level HTTP handler. Delegates route lookup to the `Registry` and constructs a fresh `httputil.NewSingleHostReverseProxy` per request, customising its `Director` to preserve the original path and query and inject standard forwarding headers.
+A composable middleware chain wrapping the proxy handler. Applied in `app.New()` via `Chain()`.
+
+```
+Recover → Logging → Metrics → Proxy
+```
+
+| Middleware | Behaviour |
+|---|---|
+| `Recover` | Deferred panic catch; logs stack trace via slog; returns 500 |
+| `Logging` | Wraps `ResponseWriter` to capture status; logs method, path, status, duration_ms, remote_addr, user_agent after response |
+| `Metrics` | Stub — wired into chain now |
+
+`Chain(h, A, B, C)` applies middlewares right-to-left so execution order is left-to-right: A -> B -> C -> h.
+
+`responseWriter` wraps `http.ResponseWriter` to intercept `WriteHeader` and capture the status code, defaulting to 200 if the handler never calls it explicitly.
+
+### 3. Proxy (`internal/proxy/proxy.go`)
+
+The inner HTTP handler. Delegates route lookup to the `Registry` and constructs a fresh `httputil.NewSingleHostReverseProxy` per request, customising its `Director` to preserve the original path and query and inject standard forwarding headers.
 
 **Key behaviour:**
 - Returns `404` if no route matches
@@ -81,7 +109,7 @@ The top-level HTTP handler. Delegates route lookup to the `Registry` and constru
 - Returns `502` (Bad Gateway) via `proxy.ErrorHandler` if the upstream call fails
 - Sets `X-Forwarded-Host`, `X-Forwarded-Proto`, and `X-Forwarded-For` headers
 
-### 3. Registry (`internal/registry/`)
+### 4. Registry (`internal/registry/`)
 
 Thread-safe map of URL prefix → `*Route`. Used by `Proxy` to resolve incoming paths.
 
@@ -91,7 +119,7 @@ Thread-safe map of URL prefix → `*Route`. Used by `Proxy` to resolve incoming 
 | `Remove(prefix)` | Deletes under write lock |
 | `Match(path) *Route` | Returns the route with the longest matching prefix (read lock) |
 
-### 4. Route (`internal/registry/route.go`)
+### 5. Route (`internal/registry/route.go`)
 
 A plain struct binding a URL prefix to its `Balancer`.
 
@@ -100,7 +128,7 @@ A plain struct binding a URL prefix to its `Balancer`.
 | `Prefix` | `string` | URL path prefix (e.g. `/auth`) |
 | `Balancer` | `balancer.Balancer` | Load-balancing strategy for this prefix |
 
-### 5. Pool (`internal/pool/pool.go`)
+### 6. Pool (`internal/pool/pool.go`)
 
 Thread-safe container for `[]*backend.Backend`.
 
@@ -111,7 +139,7 @@ Thread-safe container for `[]*backend.Backend`.
 | `GetBackends() []backend.Instance` | Returns a snapshot (read lock); implements `backend.Provider` |
 | `Load([]string) error` | Parses URLs and appends backends; health checks run separately via `health.Manager` |
 
-### 6. Backend (`internal/backend/`)
+### 7. Backend (`internal/backend/`)
 
 Represents a single upstream service instance. The `Instance` interface in `iface.go` is what the rest of the system depends on, keeping the pool, balancer, and health packages decoupled from the concrete type.
 
@@ -138,7 +166,7 @@ type Provider interface {
 }
 ```
 
-### 7. Balancer (`internal/balancer/balancer.go`)
+### 8. Balancer (`internal/balancer/balancer.go`)
 
 ```go
 type Balancer interface {
@@ -154,18 +182,19 @@ type Balancer interface {
 | `round_robin` | Atomic `uint64` counter; iterates all backends once, skipping unhealthy |
 | `least_connection` | Linear scan; picks the alive backend with the fewest active connections |
 
-### 8. Health Manager (`internal/health/`)
+### 9. Health Manager (`internal/health/`)
 
 `Manager` (in `health.go`) runs one goroutine per registered pool. Each goroutine performs an immediate check on startup, then polls on a `time.Ticker`.
 
-`checkProvider` / `checkBackend` (in `check.go`) issue `GET <backend-url>/health` with a 2-second HTTP timeout. A `2xx–4xx` response marks the backend alive; a `5xx` or network error marks it dead.
+`checkProvider` / `checkBackend` (in `check.go`) issue `GET <backend-url>/health` with a 2-second HTTP timeout. State changes are logged — a backend going down logs `WARN`, coming back up logs `INFO`. Stable state produces no log output.
 
 | Aspect | Detail |
 |---|---|
 | HTTP client timeout | 2 seconds |
-| Alive condition | HTTP status 200–499 → alive; 500+ or error → not alive |
-| Startup check | `Register` calls `checkProvider` synchronously before starting the ticker |
-| Shutdown | `Stop()` cancels the shared context and calls `wg.Wait()` — all checker goroutines exit cleanly |
+| Alive condition | HTTP status 200–499 → alive; 500+ or error → dead |
+| Logging | Only on state change (up→down or down→up) |
+| Startup check | Runs inside goroutine immediately before first ticker tick |
+| Shutdown | `Stop()` cancels the shared context and calls `wg.Wait()` |
 
 ---
 
@@ -178,7 +207,7 @@ server:
   port: 8080
   routes:
     /auth:
-      interval: 10s           # Health check interval (minimum 1s enforced at load time)
+      interval: 10s           # Health check interval (< 1s clamped to 5s)
       algorithm: round_robin  # round_robin | least_connection
       backends:
         - http://localhost:8081
@@ -190,25 +219,49 @@ server:
         - http://localhost:8091
 ```
 
-`RouteConfig` fields:
+---
 
-| Field | Type | Description |
+## Logging
+
+All logging goes through `log/slog` to stdout. Configured via environment variables at startup.
+
+| Variable | Values | Default |
 |---|---|---|
-| `interval` | `time.Duration` | Health-check polling interval (< 1s is clamped to 5s) |
-| `algorithm` | `string` | Load-balancing algorithm name |
-| `backends` | `[]string` | List of backend URLs |
+| `LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` |
+| `LOG_FORMAT` | `text`, `json` | `text` |
+
+```bash
+# local dev
+LOG_LEVEL=debug make run configs/example.yml
+
+# production
+LOG_LEVEL=warn LOG_FORMAT=json ./bin/blackflow configs/example.yml
+```
+
+**What gets logged:**
+
+| Event | Level |
+|---|---|
+| Startup, config load, route registration | INFO |
+| Incoming request (method, path, status, duration_ms) | INFO |
+| Backend came back up | INFO |
+| Backend went down | WARN |
+| Panic recovered | ERROR |
+| Listen / shutdown errors | ERROR |
 
 ---
 
-## Startup Sequence (`cmd/blackflow/main.go` + `internal/app/app.go`)
+## Startup Sequence
 
-1. Parse optional config-file path from `os.Args`
-2. Load `Config` from YAML (or default fallback)
-3. `app.New(cfg)` builds all components:
+1. Configure slog handler (format + level from env vars)
+2. Parse optional config-file path from `os.Args`
+3. Load `Config` from YAML (or default fallback)
+4. `app.New(cfg)` builds all components:
    - For each route: create `Pool`, load backends, create `Balancer`, register with `Registry` and `health.Manager`
-4. `app.Start()` — starts HTTP server in a background goroutine
-5. Block on `SIGINT` / `SIGTERM`
-6. `app.Shutdown(ctx)` — cancels health manager, waits for checker goroutines, then gracefully drains the HTTP server (5-second timeout)
+   - Wrap proxy in middleware chain: `Recover → Logging → Metrics → Proxy`
+5. `app.Start()` — starts HTTP server in a background goroutine
+6. Block on `SIGINT` / `SIGTERM`
+7. `app.Shutdown(ctx)` — cancels health manager, waits for checker goroutines, then gracefully drains the HTTP server (5-second timeout)
 
 ---
 
@@ -231,12 +284,13 @@ server:
 | Condition | Response |
 |---|---|
 | No matching route | `404 Not Found` |
-| No healthy backend | `503 Service Unavailable` ("No healthy backend") |
-| Upstream call failure | `502 Bad Gateway` ("Bad Gateway") |
-| Invalid backend URL | `500 Internal Server Error` ("Invalid backend URL") |
-| Backend health-check failure | Backend marked not alive; logged |
+| No healthy backend | `503 Service Unavailable` |
+| Upstream call failure | `502 Bad Gateway` |
+| Invalid backend URL | `500 Internal Server Error` |
+| Panic in handler | `500 Internal Server Error` + stack trace logged |
+| Backend health-check failure | Backend marked dead; logged on state change only |
 | Config parse failure | Falls back to default config |
-| Server listen error | `log.Fatalf` (fatal) |
+| Server listen error | `slog.Error` + process exits |
 | Shutdown timeout exceeded | Forced shutdown logged |
 
 ---
@@ -247,8 +301,9 @@ server:
 - Multi-route support with longest-prefix matching
 - Round Robin load balancing (atomic counter, skips unhealthy backends)
 - Least Connections load balancing (adapts to runtime load)
-- Active health checks (periodic HTTP polling, configurable interval)
-- Startup health checks (backends probed before traffic is accepted)
+- Active health checks (periodic HTTP polling, state-change logging)
+- Composable middleware chain (panic recovery, structured request logging, metrics stub)
+- Structured logging via `log/slog` (configurable level and format via env vars)
 - Graceful shutdown (OS signal handling, context cancellation, `WaitGroup` drain)
 - Forwarding headers (`X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-For`)
 - YAML-driven configuration with tilde expansion and default-file fallback
