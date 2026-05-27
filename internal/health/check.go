@@ -1,6 +1,7 @@
 package health
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -22,12 +23,26 @@ func checkBackend(b Backend) {
 		return
 	}
 
+	wasAlive := b.IsAlive()
+
 	resp, err := client.Get(u.String() + "/health")
 	if err != nil {
 		b.SetAlive(false)
+		if wasAlive {
+			slog.Warn("backend down", "backend", u.String(), "error", err)
+		}
 		return
 	}
 	defer resp.Body.Close()
 
-	b.SetAlive(resp.StatusCode >= 200 && resp.StatusCode < 500)
+	alive := resp.StatusCode >= 200 && resp.StatusCode < 500
+	b.SetAlive(alive)
+
+	if alive != wasAlive {
+		if alive {
+			slog.Info("backend up", "backend", u.String())
+		} else {
+			slog.Warn("backend down", "backend", u.String(), "status", resp.StatusCode)
+		}
+	}
 }

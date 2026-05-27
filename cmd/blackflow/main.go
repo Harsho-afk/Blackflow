@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	slog.SetDefault(slog.New(buildHandler()))
 
 	configPath := ""
 	if len(os.Args) > 1 {
@@ -49,5 +49,27 @@ func main() {
 		slog.Error("forced shutdown", "error", err)
 	} else {
 		slog.Info("shutdown complete")
+	}
+}
+
+func buildHandler() slog.Handler {
+	opts := &slog.HandlerOptions{Level: logLevel()}
+
+	if os.Getenv("LOG_FORMAT") == "json" {
+		return slog.NewJSONHandler(os.Stdout, opts)
+	}
+	return slog.NewTextHandler(os.Stdout, opts)
+}
+
+func logLevel() slog.Level {
+	switch os.Getenv("LOG_LEVEL") {
+	case "debug", "DEBUG":
+		return slog.LevelDebug
+	case "warn", "WARN":
+		return slog.LevelWarn
+	case "error", "ERROR":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
 	}
 }
