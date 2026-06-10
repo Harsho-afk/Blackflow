@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/user"
@@ -42,17 +41,17 @@ type rawRouteConfig struct {
 
 func Load(path string) (*Config, string, error) {
 	if path == "" {
-		return loadDefault()
+		return nil, "", fmt.Errorf("no config file provided")
 	}
 
 	filePath, err := expandTilde(path)
 	if err != nil {
-		return loadDefault()
+		return nil, "", fmt.Errorf("invalid config path: %w", err)
 	}
 
 	cfg, err := loadFromFile(filePath)
 	if err != nil {
-		return loadDefault()
+		return nil, "", fmt.Errorf("failed to load config: %w", err)
 	}
 
 	return cfg, filePath, nil
@@ -117,31 +116,6 @@ func normalize(raw rawConfig) (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-func loadDefault() (*Config, string, error) {
-	path, err := expandTilde("~/.config/blackflow/default.yml")
-	if err != nil {
-		return nil, "", err
-	}
-
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		if err := createDefaultFile(path); err != nil {
-			return nil, "", err
-		}
-	}
-
-	cfg, err := loadFromFile(path)
-	return cfg, path, err
-}
-
-func createDefaultFile(path string) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-		return err
-	}
-	content := []byte("server:\n  port: \"8080\"\n  routes:\n")
-	return os.WriteFile(path, content, 0644)
 }
 
 func expandTilde(path string) (string, error) {

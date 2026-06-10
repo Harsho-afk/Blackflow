@@ -1,0 +1,9 @@
+services:
+  blackflow:
+    image: harshoafk/blackflow:latest
+    container_name: blackflow
+    ports:
+      - "80:80"
+    volumes:
+      - ./docs/example-configs/example.yml:/app/configs/config.yml:ro
+    command: ["./blackflow", "./configs/config.yml"]
