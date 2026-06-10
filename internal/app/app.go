@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/Harsho-afk/blackflow/internal/balancer"
 	"github.com/Harsho-afk/blackflow/internal/config"
@@ -54,8 +55,11 @@ func New(cfg *config.Config) (*App, error) {
 	)
 
 	server := &http.Server{
-		Addr:    ":" + cfg.Server.Port,
-		Handler: handler,
+		Addr:              ":" + cfg.Server.Port,
+		Handler:           handler,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	return &App{
