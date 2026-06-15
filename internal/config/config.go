@@ -28,9 +28,10 @@ type RateLimitConfig struct {
 }
 
 type RouteConfig struct {
-	Interval  time.Duration `yaml:"interval"`
-	Algorithm string        `yaml:"algorithm"`
-	Backends  []string      `yaml:"backends"`
+	Interval    time.Duration `yaml:"interval"`
+	Algorithm   string        `yaml:"algorithm"`
+	Backends    []string      `yaml:"backends"`
+	StripPrefix bool          `yaml:"strip_prefix"`
 }
 
 type rawConfig struct {
@@ -42,9 +43,10 @@ type rawConfig struct {
 }
 
 type rawRouteConfig struct {
-	Interval  string   `yaml:"interval"`
-	Algorithm string   `yaml:"algorithm"`
-	Backends  []string `yaml:"backends"`
+	Interval    string   `yaml:"interval"`
+	Algorithm   string   `yaml:"algorithm"`
+	Backends    []string `yaml:"backends"`
+	StripPrefix bool     `yaml:"strip_prefix"`
 }
 
 func Load(path string) (*Config, string, error) {
@@ -125,9 +127,10 @@ func normalize(raw rawConfig) (*Config, error) {
 		}
 
 		cfg.Server.Routes[prefix] = RouteConfig{
-			Interval:  interval,
-			Algorithm: algo,
-			Backends:  r.Backends,
+			Interval:    interval,
+			Algorithm:   algo,
+			Backends:    r.Backends,
+			StripPrefix: r.StripPrefix,
 		}
 	}
 

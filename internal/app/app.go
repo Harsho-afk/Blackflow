@@ -35,7 +35,7 @@ func New(cfg *config.Config) (*App, error) {
 		}
 
 		b := balancer.NewBalancer(p, rc.Algorithm)
-		route := registry.NewRoute(prefix, b)
+		route := registry.NewRoute(prefix, b, rc.StripPrefix)
 
 		reg.Add(route)
 		hm.Register(p, rc.Interval)
