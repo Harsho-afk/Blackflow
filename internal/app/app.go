@@ -47,16 +47,34 @@ func New(cfg *config.Config) (*App, error) {
 		)
 	}
 
-	handler := middleware.Chain(
-		proxy.New(reg),
+	chain := []middleware.Middleware{
 		middleware.Recover,
 		middleware.Logging,
 		middleware.Metrics,
+	}
+
+	if cfg.Server.RateLimit.Enabled {
+		rl := middleware.NewRateLimiter(
+			cfg.Server.RateLimit.RequestsPerSecond,
+			cfg.Server.RateLimit.Burst,
+		)
+		chain = append(chain, rl.Middleware)
+
+		slog.Info("rate limiting enabled",
+			"requests_per_second", cfg.Server.RateLimit.RequestsPerSecond,
+			"burst", cfg.Server.RateLimit.Burst,
+		)
+	}
+
+	handler := middleware.Chain(
+		proxy.New(reg),
+		chain...,
 	)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Server.Port,
 		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,

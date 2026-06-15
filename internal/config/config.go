@@ -16,8 +16,15 @@ type Config struct {
 }
 
 type Server struct {
-	Port   string                 `yaml:"port"`
-	Routes map[string]RouteConfig `yaml:"routes"`
+	Port      string                 `yaml:"port"`
+	RateLimit RateLimitConfig        `yaml:"rate_limit"`
+	Routes    map[string]RouteConfig `yaml:"routes"`
+}
+
+type RateLimitConfig struct {
+	Enabled           bool    `yaml:"enabled"`
+	RequestsPerSecond float64 `yaml:"requests_per_second"`
+	Burst             int     `yaml:"burst"`
 }
 
 type RouteConfig struct {
@@ -28,8 +35,9 @@ type RouteConfig struct {
 
 type rawConfig struct {
 	Server struct {
-		Port   string                    `yaml:"port"`
-		Routes map[string]rawRouteConfig `yaml:"routes"`
+		Port      string                    `yaml:"port"`
+		RateLimit RateLimitConfig           `yaml:"rate_limit"`
+		Routes    map[string]rawRouteConfig `yaml:"routes"`
 	} `yaml:"server"`
 }
 
@@ -91,6 +99,14 @@ func normalize(raw rawConfig) (*Config, error) {
 
 	if cfg.Server.Port == "" {
 		cfg.Server.Port = "8080"
+	}
+
+	cfg.Server.RateLimit = raw.Server.RateLimit
+	if cfg.Server.RateLimit.RequestsPerSecond <= 0 {
+		cfg.Server.RateLimit.RequestsPerSecond = 10
+	}
+	if cfg.Server.RateLimit.Burst <= 0 {
+		cfg.Server.RateLimit.Burst = 20
 	}
 
 	for prefix, r := range raw.Server.Routes {
