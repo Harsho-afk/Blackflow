@@ -35,7 +35,13 @@ func (r *Registry) Match(path string) *Route {
 	longest := 0
 
 	for prefix, route := range r.routes {
-		if strings.HasPrefix(path, prefix) && len(prefix) > longest {
+		if !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		if len(path) > len(prefix) && path[len(prefix)] != '/' {
+			continue
+		}
+		if len(prefix) > longest {
 			best = route
 			longest = len(prefix)
 		}
