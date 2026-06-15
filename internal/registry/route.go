@@ -5,13 +5,15 @@ import (
 )
 
 type Route struct {
-	Prefix   string
-	Balancer balancer.Balancer
+	Prefix      string
+	StripPrefix bool
+	Balancer    balancer.Balancer
 }
 
-func NewRoute(prefix string, b balancer.Balancer) *Route {
+func NewRoute(prefix string, b balancer.Balancer, stripPrefix bool) *Route {
 	return &Route{
-		Prefix:   prefix,
-		Balancer: b,
+		Prefix:      prefix,
+		StripPrefix: stripPrefix,
+		Balancer:    b,
 	}
 }

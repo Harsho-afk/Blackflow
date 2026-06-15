@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 
 	"github.com/Harsho-afk/blackflow/internal/registry"
 )
@@ -42,11 +43,19 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
+	forwardPath := r.URL.Path
+	if route.StripPrefix {
+		forwardPath = strings.TrimPrefix(forwardPath, route.Prefix)
+		if forwardPath == "" || !strings.HasPrefix(forwardPath, "/") {
+			forwardPath = "/" + forwardPath
+		}
+	}
+
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
 
-		req.URL.Path = r.URL.Path
+		req.URL.Path = forwardPath
 		req.URL.RawQuery = r.URL.RawQuery
 
 		req.Header.Set("X-Forwarded-Host", r.Host)

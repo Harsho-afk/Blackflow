@@ -8,6 +8,7 @@ server:
     /auth:
       interval: 5s
       algorithm: round_robin
+      strip_prefix: true
       backends:
         - http://auth1:8081
         - http://auth2:8082
@@ -15,5 +16,6 @@ server:
     /api:
       interval: 10s
       algorithm: least_connection
+      strip_prefix: false
       backends:
         - http://api1:8091
