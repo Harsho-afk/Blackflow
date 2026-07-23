@@ -3,7 +3,7 @@
 ## Overview
 
 Blackflow is a reverse proxy and load balancer written in Go (1.22+).  
-It routes incoming HTTP requests to backend services based on URL path prefixes and distributes load using pluggable balancing strategies. Configuration is driven by a YAML file, and the server supports graceful shutdown.
+It routes incoming HTTP requests to backend services based on URL path prefixes and distributes load using pluggable balancing strategies. Configuration is driven by a TOML file, and the server supports graceful shutdown.
 
 ---
 
@@ -34,7 +34,6 @@ Client -> Recover -> Logging -> Metrics -> Proxy -> Route Matching -> Load Balan
 ```
 blackflow/
 ├── cmd/blackflow/main.go           # Entry point: logging setup, config load, OS signals
-├── configs/example.yml             # Example configuration file
 ├── internal/
 │   ├── app/
 │   │   └── app.go                  # App: wires config → pool → balancer → registry → health → middleware → HTTP server
@@ -44,7 +43,7 @@ blackflow/
 │   ├── balancer/
 │   │   └── balancer.go             # Balancer interface + RoundRobin / LeastConnection impls
 │   ├── config/
-│   │   └── config.go               # YAML config loading, tilde expansion, default-file creation
+│   │   └── config.go               # TOML config loading, tilde expansion, default-file creation
 │   ├── health/
 │   │   ├── check.go                # Per-backend HTTP health check logic, state-change logging
 │   │   └── health.go               # Manager: runs health checks on a ticker, supports graceful stop
@@ -53,6 +52,7 @@ blackflow/
 │   │   ├── recover.go              # Panic recovery → 500, logs stack trace
 │   │   ├── logging.go              # Structured per-request logging via slog
 │   │   ├── metrics.go              # Metrics hook stub
+│   │   ├── ratelimit.go            # Token-bucket per-IP rate limiter
 │   │   └── responsewriter.go       # http.ResponseWriter wrapper to capture status code
 │   ├── pool/
 │   │   └── pool.go                 # Thread-safe backend pool
@@ -62,7 +62,11 @@ blackflow/
 │       ├── registery.go            # Registry: thread-safe route map with longest-prefix Match
 │       └── route.go                # Route struct binding a prefix to a Balancer
 ├── docs/
-│   └── architecture.md
+│   ├── architecture.md
+│   └── example-configs/
+│       └── example.toml            # Example configuration file
+├── Dockerfile
+├── docker-compose.yml
 ├── Makefile
 └── go.mod                          # Module: github.com/Harsho-afk/blackflow
 ```
@@ -200,23 +204,21 @@ type Balancer interface {
 
 ## Configuration (`internal/config/config.go`)
 
-Config is loaded from a YAML file at a user-supplied path. On any failure (path missing, wrong extension, parse error) it falls back to `~/.config/blackflow/default.yml`, creating the file with a minimal skeleton if it does not exist.
+Config is loaded from a TOML file at a user-supplied path. On any failure (path missing, wrong extension, parse error) it falls back to `~/.config/blackflow/default.toml`, creating the file with a minimal skeleton if it does not exist.
 
-```yaml
-server:
-  port: 8080
-  routes:
-    /auth:
-      interval: 10s           # Health check interval (< 1s clamped to 5s)
-      algorithm: round_robin  # round_robin | least_connection
-      backends:
-        - http://localhost:8081
-        - http://localhost:8082
-    /api:
-      interval: 10s
-      algorithm: least_connection
-      backends:
-        - http://localhost:8091
+```toml
+[server]
+port = 8080
+
+[server.routes."/auth"]
+interval = "10s"          # Health check interval (< 1s clamped to 5s)
+algorithm = "round_robin" # round_robin | least_connection
+backends = ["http://localhost:8081", "http://localhost:8082"]
+
+[server.routes."/api"]
+interval = "10s"
+algorithm = "least_connection"
+backends = ["http://localhost:8091"]
 ```
 
 ---
@@ -232,10 +234,10 @@ All logging goes through `log/slog` to stdout. Configured via environment variab
 
 ```bash
 # local dev
-LOG_LEVEL=debug make run configs/example.yml
+LOG_LEVEL=debug make run configs/example.toml
 
 # production
-LOG_LEVEL=warn LOG_FORMAT=json ./bin/blackflow configs/example.yml
+LOG_LEVEL=warn LOG_FORMAT=json ./bin/blackflow configs/example.toml
 ```
 
 **What gets logged:**
@@ -255,7 +257,7 @@ LOG_LEVEL=warn LOG_FORMAT=json ./bin/blackflow configs/example.yml
 
 1. Configure slog handler (format + level from env vars)
 2. Parse optional config-file path from `os.Args`
-3. Load `Config` from YAML (or default fallback)
+3. Load `Config` from TOML (or default fallback)
 4. `app.New(cfg)` builds all components:
    - For each route: create `Pool`, load backends, create `Balancer`, register with `Registry` and `health.Manager`
    - Wrap proxy in middleware chain: `Recover → Logging → Metrics → Proxy`
@@ -306,5 +308,5 @@ LOG_LEVEL=warn LOG_FORMAT=json ./bin/blackflow configs/example.yml
 - Structured logging via `log/slog` (configurable level and format via env vars)
 - Graceful shutdown (OS signal handling, context cancellation, `WaitGroup` drain)
 - Forwarding headers (`X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-For`)
-- YAML-driven configuration with tilde expansion and default-file fallback
+- TOML-driven configuration with tilde expansion and default-file fallback
 - Interface-driven design (`backend.Instance`, `backend.Provider`) for testability

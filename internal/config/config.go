@@ -8,45 +8,45 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/BurntSushi/toml"
 )
 
 type Config struct {
-	Server Server `yaml:"server"`
+	Server Server `toml:"server"`
 }
 
 type Server struct {
-	Port      string                 `yaml:"port"`
-	RateLimit RateLimitConfig        `yaml:"rate_limit"`
-	Routes    map[string]RouteConfig `yaml:"routes"`
+	Port      string                 `toml:"port"`
+	RateLimit RateLimitConfig        `toml:"rate_limit"`
+	Routes    map[string]RouteConfig `toml:"routes"`
 }
 
 type RateLimitConfig struct {
-	Enabled           bool    `yaml:"enabled"`
-	RequestsPerSecond float64 `yaml:"requests_per_second"`
-	Burst             int     `yaml:"burst"`
+	Enabled           bool    `toml:"enabled"`
+	RequestsPerSecond float64 `toml:"requests_per_second"`
+	Burst             int     `toml:"burst"`
 }
 
 type RouteConfig struct {
-	Interval    time.Duration `yaml:"interval"`
-	Algorithm   string        `yaml:"algorithm"`
-	Backends    []string      `yaml:"backends"`
-	StripPrefix bool          `yaml:"strip_prefix"`
+	Interval    time.Duration `toml:"interval"`
+	Algorithm   string        `toml:"algorithm"`
+	Backends    []string      `toml:"backends"`
+	StripPrefix bool          `toml:"strip_prefix"`
 }
 
 type rawConfig struct {
 	Server struct {
-		Port      string                    `yaml:"port"`
-		RateLimit RateLimitConfig           `yaml:"rate_limit"`
-		Routes    map[string]rawRouteConfig `yaml:"routes"`
-	} `yaml:"server"`
+		Port      string                    `toml:"port"`
+		RateLimit RateLimitConfig           `toml:"rate_limit"`
+		Routes    map[string]rawRouteConfig `toml:"routes"`
+	} `toml:"server"`
 }
 
 type rawRouteConfig struct {
-	Interval    string   `yaml:"interval"`
-	Algorithm   string   `yaml:"algorithm"`
-	Backends    []string `yaml:"backends"`
-	StripPrefix bool     `yaml:"strip_prefix"`
+	Interval    string   `toml:"interval"`
+	Algorithm   string   `toml:"algorithm"`
+	Backends    []string `toml:"backends"`
+	StripPrefix bool     `toml:"strip_prefix"`
 }
 
 func Load(path string) (*Config, string, error) {
@@ -74,7 +74,7 @@ func loadFromFile(path string) (*Config, error) {
 	}
 
 	ext := strings.TrimSpace(filepath.Ext(path))
-	if ext != ".yml" && ext != ".yaml" {
+	if ext != ".toml" {
 		return nil, fmt.Errorf("invalid file type")
 	}
 
@@ -84,7 +84,7 @@ func loadFromFile(path string) (*Config, error) {
 	}
 
 	var raw rawConfig
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	if err := toml.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
 
