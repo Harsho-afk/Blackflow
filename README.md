@@ -11,6 +11,7 @@ Blackflow routes incoming HTTP requests to backend services based on URL path pr
 - Longest-prefix multi-route matching
 - Round Robin load balancing (atomic counter, skips unhealthy backends)
 - Least Connections load balancing (adapts to runtime load)
+- IP Hash load balancing (sticky routing by client IP, degrades gracefully on backend failure)
 - Active health checks — periodic `GET /health` polling per backend pool
 - Startup health checks — backends are probed before the server accepts traffic
 - Forwarding headers — `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-For`
@@ -65,7 +66,7 @@ port = 8080
 
 [server.routes."/auth"]
 interval = "10s"          # Health check polling interval (values < 1s default to 5s)
-algorithm = "round_robin" # round_robin | least_connection
+algorithm = "round_robin" # round_robin | least_connection | ip_hash
 backends = ["http://localhost:8081", "http://localhost:8082"]
 
 [server.routes."/api"]

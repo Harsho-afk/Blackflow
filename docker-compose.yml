@@ -12,6 +12,8 @@ services:
       - auth1
       - auth2
       - api1
+      - sessions1
+      - sessions2
 
   auth1:
     image: python:3.12-alpine
@@ -24,3 +26,11 @@ services:
   api1:
     image: python:3.12-alpine
     command: sh -c "echo api1 > index.html && python -m http.server 8091"
+
+  sessions1:
+    image: python:3.12-alpine
+    command: sh -c "echo sessions1 > index.html && python -m http.server 8101"
+
+  sessions2:
+    image: python:3.12-alpine
+    command: sh -c "echo sessions2 > index.html && python -m http.server 8102"

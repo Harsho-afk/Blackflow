@@ -17,3 +17,9 @@ interval = "10s"
 algorithm = "least_connection"
 strip_prefix = true
 backends = ["http://api1:8091"]
+
+[server.routes."/sessions"]
+interval = "10s"
+algorithm = "ip_hash"
+strip_prefix = true
+backends = ["http://sessions1:8101", "http://sessions2:8102"]
