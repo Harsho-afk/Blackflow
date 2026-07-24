@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/Harsho-afk/blackflow/internal/balancer"
 	"github.com/Harsho-afk/blackflow/internal/config"
 	"github.com/Harsho-afk/blackflow/internal/health"
@@ -66,14 +68,25 @@ func New(cfg *config.Config) (*App, error) {
 		)
 	}
 
-	handler := middleware.Chain(
+	proxyHandler := middleware.Chain(
 		proxy.New(reg),
 		chain...,
 	)
 
+	// /metrics is served on a separate mux entry so it never goes
+	// through the proxy/routing path. It is still wrapped in Recover
+	// so a panic while rendering metrics can't take the whole process
+	// down. It intentionally bypasses rate limiting and the proxy's
+	// Logging/Metrics middleware, since it is not a proxied request.
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", middleware.Recover(promhttp.Handler()))
+	mux.Handle("/", proxyHandler)
+
+	slog.Info("metrics endpoint registered", "path", "/metrics")
+
 	server := &http.Server{
 		Addr:              ":" + cfg.Server.Port,
-		Handler:           handler,
+		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
