@@ -2,7 +2,7 @@
 port = "80"
 
 [server.rate_limit]
-enabled = true
+enabled = false
 requests_per_second = 10
 burst = 20
 
@@ -15,5 +15,5 @@ backends = ["http://auth1:8081", "http://auth2:8082"]
 [server.routes."/api"]
 interval = "10s"
 algorithm = "least_connection"
-strip_prefix = false
+strip_prefix = true
 backends = ["http://api1:8091"]
