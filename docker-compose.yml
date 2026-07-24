@@ -5,8 +5,8 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./docs/example-configs/example.yml:/app/configs/config.yml:ro
-    command: ["./blackflow", "./configs/config.yml"]
+      - ./docs/example-configs/example.toml:/app/configs/config.toml:ro
+    command: ["./blackflow", "./configs/config.toml"]
     depends_on:
       - auth1
       - auth2

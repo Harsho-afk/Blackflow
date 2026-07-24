@@ -1,21 +1,19 @@
-server:
-  port: "80"
-  rate_limit:
-      enabled: true
-      requests_per_second: 10
-      burst: 20
-  routes:
-    /auth:
-      interval: 5s
-      algorithm: round_robin
-      strip_prefix: true
-      backends:
-        - http://auth1:8081
-        - http://auth2:8082
+[server]
+port = "80"
 
-    /api:
-      interval: 10s
-      algorithm: least_connection
-      strip_prefix: false
-      backends:
-        - http://api1:8091
+[server.rate_limit]
+enabled = true
+requests_per_second = 10
+burst = 20
+
+[server.routes."/auth"]
+interval = "5s"
+algorithm = "round_robin"
+strip_prefix = true
+backends = ["http://auth1:8081", "http://auth2:8082"]
+
+[server.routes."/api"]
+interval = "10s"
+algorithm = "least_connection"
+strip_prefix = false
+backends = ["http://api1:8091"]

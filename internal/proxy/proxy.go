@@ -1,11 +1,13 @@
 package proxy
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
 
+	"github.com/Harsho-afk/blackflow/internal/metrics"
 	"github.com/Harsho-afk/blackflow/internal/registry"
 )
 
@@ -22,24 +24,42 @@ func New(r *registry.Registry) *Proxy {
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	route := p.registry.Match(r.URL.Path)
 	if route == nil {
+		metrics.FailedRequestsTotal.WithLabelValues("route_not_found").Inc()
 		http.NotFound(w, r)
 		return
 	}
 
 	backend := route.Balancer.NextBackend()
 	if backend == nil {
+		metrics.FailedRequestsTotal.WithLabelValues("no_backend_available").Inc()
+		slog.Warn("no healthy backend available", "prefix", route.Prefix)
 		http.Error(w, "No healthy backend", http.StatusServiceUnavailable)
 		return
 	}
 
-	backend.Increment()
-	defer backend.Decrement()
-
 	var target *url.URL = backend.GetURL()
 	if target == nil {
+		metrics.FailedRequestsTotal.WithLabelValues("invalid_backend_url").Inc()
+		slog.Error("selected backend has no URL", "prefix", route.Prefix)
 		http.Error(w, "Invalid backend URL", http.StatusInternalServerError)
 		return
 	}
+
+	backendLabel := target.String()
+
+	slog.Debug("backend selected",
+		"prefix", route.Prefix,
+		"backend", backendLabel,
+		"algorithm", route.Balancer.GetAlgorithm(),
+	)
+
+	backend.Increment()
+	metrics.BackendActiveConnections.WithLabelValues(backendLabel).Inc()
+	metrics.BackendRequestsTotal.WithLabelValues(backendLabel).Inc()
+	defer func() {
+		backend.Decrement()
+		metrics.BackendActiveConnections.WithLabelValues(backendLabel).Dec()
+	}()
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
 
@@ -67,6 +87,12 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
+		metrics.FailedRequestsTotal.WithLabelValues("bad_gateway").Inc()
+		slog.Error("backend request failed",
+			"backend", backendLabel,
+			"prefix", route.Prefix,
+			"error", err,
+		)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
 	}
 
