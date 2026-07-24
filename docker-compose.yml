@@ -1,5 +1,6 @@
 services:
   blackflow:
+    build: .
     image: harshoafk/blackflow:latest
     container_name: blackflow
     ports:
