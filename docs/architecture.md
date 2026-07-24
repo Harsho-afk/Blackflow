@@ -41,7 +41,7 @@ blackflow/
 │   │   ├── backend.go              # Backend struct (URL, alive state, active-connection counter)
 │   │   └── iface.go                # Instance and Provider interfaces
 │   ├── balancer/
-│   │   └── balancer.go             # Balancer interface + RoundRobin / LeastConnection impls
+│   │   └── balancer.go             # Balancer interface + RoundRobin / LeastConnection / IPHash impls
 │   ├── config/
 │   │   └── config.go               # TOML config loading, tilde expansion, default-file creation
 │   ├── health/
@@ -174,10 +174,12 @@ type Provider interface {
 
 ```go
 type Balancer interface {
-    NextBackend() Backend
+    NextBackend(key string) Backend
     GetAlgorithm() string
 }
 ```
+
+`key` is an algorithm-specific routing key — currently the client IP, computed once per request in `proxy.go`. Round Robin and Least Connection ignore it; IPHash uses it for affinity.
 
 `NewBalancer(pool, algo)` is a factory returning the correct implementation. Unknown algorithm strings fall back to Round Robin.
 
@@ -185,6 +187,7 @@ type Balancer interface {
 |---|---|
 | `round_robin` | Atomic `uint64` counter; iterates all backends once, skipping unhealthy |
 | `least_connection` | Linear scan; picks the alive backend with the fewest active connections |
+| `ip_hash` | FNV-1a hash of the client IP mod pool size selects a start index; probes forward through the pool in fixed order if that backend is unhealthy |
 
 ### 9. Health Manager (`internal/health/`)
 
@@ -212,7 +215,7 @@ port = 8080
 
 [server.routes."/auth"]
 interval = "10s"          # Health check interval (< 1s clamped to 5s)
-algorithm = "round_robin" # round_robin | least_connection
+algorithm = "round_robin" # round_robin | least_connection | ip_hash
 backends = ["http://localhost:8081", "http://localhost:8082"]
 
 [server.routes."/api"]
@@ -303,6 +306,7 @@ LOG_LEVEL=warn LOG_FORMAT=json ./bin/blackflow configs/example.toml
 - Multi-route support with longest-prefix matching
 - Round Robin load balancing (atomic counter, skips unhealthy backends)
 - Least Connections load balancing (adapts to runtime load)
+- IP Hash load balancing (sticky routing by client IP, degrades gracefully on backend failure)
 - Active health checks (periodic HTTP polling, state-change logging)
 - Composable middleware chain (panic recovery, structured request logging, metrics stub)
 - Structured logging via `log/slog` (configurable level and format via env vars)

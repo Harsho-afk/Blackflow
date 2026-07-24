@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -29,7 +30,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	backend := route.Balancer.NextBackend()
+	backend := route.Balancer.NextBackend(clientKey(r))
 	if backend == nil {
 		metrics.FailedRequestsTotal.WithLabelValues("no_backend_available").Inc()
 		slog.Warn("no healthy backend available", "prefix", route.Prefix)
@@ -97,4 +98,16 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxy.ServeHTTP(w, r)
+}
+
+// clientKey returns the client IP used as the routing key for
+// affinity-based load balancing strategies (e.g. IPHash). It falls
+// back to the raw RemoteAddr if the host:port split fails, so a
+// malformed address still yields a stable (if imperfect) key rather
+// than an empty one.
+func clientKey(r *http.Request) string {
+	if ip, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return ip
+	}
+	return r.RemoteAddr
 }
