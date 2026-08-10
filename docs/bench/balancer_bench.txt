@@ -1,0 +1,17 @@
+goos: linux
+goarch: amd64
+pkg: github.com/Harsho-afk/blackflow/internal/balancer
+cpu: 12th Gen Intel(R) Core(TM) i5-12450H
+BenchmarkRoundRobin_2Backends-12           	14809093	        72.92 ns/op	      48 B/op	       2 allocs/op
+BenchmarkRoundRobin_10Backends-12          	11652140	       104.9 ns/op	     176 B/op	       2 allocs/op
+BenchmarkRoundRobin_100Backends-12         	 3492452	       348.6 ns/op	    1808 B/op	       2 allocs/op
+BenchmarkLeastConnection_2Backends-12      	15221300	        77.43 ns/op	      48 B/op	       2 allocs/op
+BenchmarkLeastConnection_10Backends-12     	 5741052	       214.3 ns/op	     176 B/op	       2 allocs/op
+BenchmarkLeastConnection_100Backends-12    	  631927	      1727 ns/op	    1808 B/op	       2 allocs/op
+BenchmarkIPHash_2Backends-12               	16111708	        72.82 ns/op	      48 B/op	       2 allocs/op
+BenchmarkIPHash_10Backends-12              	10930183	       106.4 ns/op	     176 B/op	       2 allocs/op
+BenchmarkIPHash_100Backends-12             	 3394978	       345.0 ns/op	    1808 B/op	       2 allocs/op
+BenchmarkRoundRobin_Parallel-12            	 9826100	       111.5 ns/op	     160 B/op	       1 allocs/op
+BenchmarkLeastConnection_Parallel-12       	 4158831	       287.6 ns/op	     160 B/op	       1 allocs/op
+PASS
+ok  	github.com/Harsho-afk/blackflow/internal/balancer	14.649s

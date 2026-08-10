@@ -1,0 +1,13 @@
+[server]
+port = "8080"
+
+[server.rate_limit]
+enabled = false
+requests_per_second = 10
+burst = 20
+
+[server.routes."/api"]
+interval = "5s"
+algorithm = "ip_hash"
+strip_prefix = true
+backends = ["http://localhost:8081", "http://localhost:8082"]
