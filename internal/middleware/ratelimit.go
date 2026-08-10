@@ -13,11 +13,11 @@ type bucket struct {
 }
 
 type RateLimiter struct {
-	mu       sync.Mutex
-	buckets  map[string]*bucket
-	rate     float64 // tokens per second
-	burst    float64 // max bucket size
-	ttl      time.Duration
+	mu      sync.Mutex
+	buckets map[string]*bucket
+	rate    float64 // tokens per second
+	burst   float64 // max bucket size
+	ttl     time.Duration
 }
 
 func NewRateLimiter(requestsPerSecond float64, burst int) *RateLimiter {
@@ -25,7 +25,7 @@ func NewRateLimiter(requestsPerSecond float64, burst int) *RateLimiter {
 		buckets: make(map[string]*bucket),
 		rate:    requestsPerSecond,
 		burst:   float64(burst),
-		ttl:      10 * time.Minute,
+		ttl:     10 * time.Minute,
 	}
 
 	go rl.cleanupLoop()

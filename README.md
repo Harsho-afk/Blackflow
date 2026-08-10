@@ -16,7 +16,7 @@ Blackflow routes incoming HTTP requests to backend services based on URL path pr
 - Startup health checks — backends are probed before the server accepts traffic
 - Forwarding headers — `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-For`
 - Graceful shutdown on `SIGINT` / `SIGTERM`
-- TOML-driven configuration with `~` tilde expansion and automatic default-file creation
+- TOML-driven configuration with `~` tilde expansion
 - Interface-driven design for testability (`backend.Instance`, `backend.Provider`)
 
 ---
@@ -46,13 +46,14 @@ The compiled binary is written to `bin/blackflow`.
 ./bin/blackflow /path/to/config.toml
 
 # Run without a path — falls back to ~/.config/blackflow/default.toml
+# (this file is never created automatically; it must already exist)
 ./bin/blackflow
 
 # Run directly with go run
 make run /path/to/config.toml
 ```
 
-If the config path is omitted, invalid, or unreadable, Blackflow falls back to `~/.config/blackflow/default.toml`. That file is created automatically with a minimal skeleton if it does not exist.
+If the config path is omitted, invalid, or unreadable, Blackflow falls back to `~/.config/blackflow/default.toml`. Blackflow never creates this file (or any config file) on its own — if it doesn't already exist, startup fails with an error.
 
 ---
 

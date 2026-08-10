@@ -5,12 +5,12 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN go build -o bin/blackflow ./cmd/blackflow
+RUN CGO_ENABLED=0 go build -o bin/blackflow ./cmd/blackflow
 
 FROM alpine:latest
 
 WORKDIR /app
 COPY --from=builder /app/bin/blackflow .
 
-EXPOSE 80
+EXPOSE 8080
 CMD ["./blackflow"]

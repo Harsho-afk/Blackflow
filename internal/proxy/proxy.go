@@ -7,10 +7,30 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/Harsho-afk/blackflow/internal/metrics"
 	"github.com/Harsho-afk/blackflow/internal/registry"
 )
+
+// backendTransport is shared across all requests so a hung or slow
+// backend can never hang the proxy indefinitely. It mirrors
+// http.DefaultTransport but caps dial time and the wait for
+// backend response headers.
+var backendTransport http.RoundTripper = &http.Transport{
+	Proxy: http.ProxyFromEnvironment,
+	DialContext: (&net.Dialer{
+		Timeout:   5 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext,
+	ForceAttemptHTTP2:     true,
+	MaxIdleConns:          100,
+	MaxIdleConnsPerHost:   20,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: 1 * time.Second,
+	ResponseHeaderTimeout: 15 * time.Second,
+}
 
 type Proxy struct {
 	registry *registry.Registry
@@ -63,6 +83,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Transport = backendTransport
 
 	forwardPath := r.URL.Path
 	if route.StripPrefix {

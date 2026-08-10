@@ -49,9 +49,13 @@ type rawRouteConfig struct {
 	StripPrefix bool     `toml:"strip_prefix"`
 }
 
+// Load reads the config at path. If path is empty, invalid, or
+// unreadable, it falls back to reading ~/.config/blackflow/default.toml
+// if that file already exists. Blackflow never creates a config file
+// on its own — if no usable config is found, Load returns an error.
 func Load(path string) (*Config, string, error) {
 	if path == "" {
-		return nil, "", fmt.Errorf("no config file provided")
+		return loadDefault()
 	}
 
 	filePath, err := expandTilde(path)
@@ -61,10 +65,32 @@ func Load(path string) (*Config, string, error) {
 
 	cfg, err := loadFromFile(filePath)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to load config: %w", err)
+		return loadDefault()
 	}
 
 	return cfg, filePath, nil
+}
+
+// loadDefault reads ~/.config/blackflow/default.toml if it exists.
+// It never writes or creates that file.
+func loadDefault() (*Config, string, error) {
+	usr, err := user.Current()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to resolve home directory: %w", err)
+	}
+
+	defaultPath := filepath.Join(usr.HomeDir, ".config", "blackflow", "default.toml")
+
+	if _, err := os.Stat(defaultPath); err != nil {
+		return nil, "", fmt.Errorf("no config file provided, and no default config found at %s", defaultPath)
+	}
+
+	cfg, err := loadFromFile(defaultPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to load default config: %w", err)
+	}
+
+	return cfg, defaultPath, nil
 }
 
 func loadFromFile(path string) (*Config, error) {

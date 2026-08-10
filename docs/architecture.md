@@ -207,7 +207,7 @@ type Balancer interface {
 
 ## Configuration (`internal/config/config.go`)
 
-Config is loaded from a TOML file at a user-supplied path. On any failure (path missing, wrong extension, parse error) it falls back to `~/.config/blackflow/default.toml`, creating the file with a minimal skeleton if it does not exist.
+Config is loaded from a TOML file at a user-supplied path. On any failure (path missing, wrong extension, parse error) it falls back to reading `~/.config/blackflow/default.toml` if that file already exists. Blackflow never writes or creates a config file itself — if no usable file is found, `Load` returns an error and startup fails.
 
 ```toml
 [server]
